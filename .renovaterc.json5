@@ -2,15 +2,73 @@
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: ["config:recommended"],
   schedule: ["every weekend"],
+
+  // Automerge is the default here, not the exception. Every image in this repo
+  // is rebuilt by build.yaml on the PR, and Renovate only automerges once all
+  // status checks pass (ignoreTests stays false), so a bump that breaks a
+  // build never reaches main. `main` has no protection rules, so this relies
+  // on Renovate's own check gating rather than GitHub's - keep ignoreTests off.
+  automerge: true,
+  automergeType: "pr",
+  // Squash so main keeps one commit per bump rather than a merge commit.
+  automergeStrategy: "squash",
+
+  // Nothing here is consumed by anything but this repo's own builds and the
+  // home-ops pins, so let digest/pin updates through unattended too.
+  minor: { automerge: true },
+  patch: { automerge: true },
+  pin: { automerge: true },
+  digest: { automerge: true },
+  lockFileMaintenance: { enabled: true, automerge: true },
+
+  packageRules: [
+    {
+      matchManagers: ["github-actions"],
+      groupName: "GitHub Actions",
+      // Actions are pinned by SHA with a version comment; majors here have
+      // been runtime bumps, and the build proves them before merge.
+      matchUpdateTypes: ["major", "minor", "patch", "digest", "pin"],
+      automerge: true,
+    },
+    {
+      // The Postgres base image and the TimescaleDB source tag have to move
+      // together - the extension is compiled against the operand's PG major.
+      // Minor/patch build and merge on their own; a PG major has to land in
+      // lockstep with the CNPG operand bump in home-ops, so that one waits.
+      matchPackageNames: ["timescale/timescaledb", "postgres", "docker.io/library/postgres"],
+      groupName: "TimescaleDB & PostgreSQL",
+      automerge: true,
+    },
+    {
+      matchPackageNames: ["timescale/timescaledb", "postgres", "docker.io/library/postgres"],
+      matchUpdateTypes: ["major"],
+      automerge: false,
+      dependencyDashboardApproval: true,
+    },
+  ],
+
   // The TimescaleDB version and PG major are build args in the workflow matrix
   // rather than image tags, so Renovate needs telling where to look.
   customManagers: [
     {
       customType: "regex",
+      description: "TimescaleDB release tag in the build matrix",
       managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
       matchStrings: ["version:\\s*\"(?<currentValue>.*?)\"\\s*\\n\\s*pg_major:"],
       depNameTemplate: "timescale/timescaledb",
       datasourceTemplate: "github-releases",
+      extractVersionTemplate: "^(?<version>.*)$",
+    },
+    {
+      customType: "regex",
+      description: "Postgres base image tag in the timescaledb-extension Dockerfile",
+      managerFilePatterns: ["/^timescaledb-extension/Dockerfile$/"],
+      // Only the ARG default carries a full version; the FROM line uses the
+      // ARG, so matching here is enough to bump the build.
+      matchStrings: ["ARG PG_MAJOR=(?<currentValue>\\d+)"],
+      depNameTemplate: "postgres",
+      datasourceTemplate: "docker",
+      versioningTemplate: "docker",
     },
   ],
 }
