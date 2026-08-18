@@ -40,8 +40,17 @@ jobs:
           - name: timescaledb-extension
             context: timescaledb-extension
             # Tag is <ext-version>-<pg-major>; both are build args so a bump is
-            # a one-line change here.
+            # a one-line change here. `version` is the default the control file
+            # advertises; `versions` is everything whose .so ships, and must
+            # contain `version`.
+            #
+            # 2.25.2 is here because the db1 databases still record it in
+            # pg_extension - TimescaleDB loads the exact version-suffixed .so
+            # named there, so dropping it breaks every session on those
+            # databases. Remove it only once they have been moved to 2.29.2
+            # with ALTER EXTENSION timescaledb UPDATE.
             version: "2.29.2"
+            versions: "2.25.2 2.29.2"
             pg_major: "18"
     steps:
       - name: Checkout
@@ -71,6 +80,7 @@ jobs:
           build-args: |
             PG_MAJOR=${{ matrix.pg_major }}
             TIMESCALEDB_VERSION=${{ matrix.version }}
+            TIMESCALEDB_VERSIONS=${{ matrix.versions }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:${{ matrix.version }}-${{ matrix.pg_major }}
             ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:${{ matrix.version }}-${{ matrix.pg_major }}-${{ github.sha }}
