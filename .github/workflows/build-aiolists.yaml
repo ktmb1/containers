@@ -68,7 +68,7 @@ jobs:
       # Upstream ships a working multi-stage Dockerfile at the repo root
       # (node:18-alpine, npm ci --omit=dev, `npm run prod` on :7000).
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile

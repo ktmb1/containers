@@ -102,7 +102,7 @@ jobs:
       # strategy built amd64 only too.
       - name: Build and push
         if: steps.published.outputs.skip == 'false'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
