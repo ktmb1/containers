@@ -80,7 +80,7 @@ jobs:
 
       - name: Checkout upstream source
         if: steps.published.outputs.skip == 'false'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Stremio/stremio-web
           ref: ${{ steps.rev.outputs.revision }}
