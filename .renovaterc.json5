@@ -1,0 +1,16 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:recommended"],
+  schedule: ["every weekend"],
+  // The TimescaleDB version and PG major are build args in the workflow matrix
+  // rather than image tags, so Renovate needs telling where to look.
+  customManagers: [
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
+      matchStrings: ["version:\\s*\"(?<currentValue>.*?)\"\\s*\\n\\s*pg_major:"],
+      depNameTemplate: "timescale/timescaledb",
+      datasourceTemplate: "github-releases",
+    },
+  ],
+}
