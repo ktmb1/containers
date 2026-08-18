@@ -59,6 +59,11 @@ RUN set -eux; \
 # -DAPACHE_ONLY=ON builds only the Apache-2.0 licensed core, leaving out the
 # Timescale License (TSL) parts. That keeps the image redistributable and still
 # covers hypertables, compression and continuous aggregates.
+#
+# Each pass starts with `cd /`: from the second iteration onward the shell is
+# still inside /src/build from the previous one, and `rm -rf /src` would delete
+# its own working directory, making the next git clone fail with "Unable to
+# read current working directory".
 RUN set -eux; \
     case " ${TIMESCALEDB_VERSIONS} " in \
         *" ${TIMESCALEDB_VERSION} "*) ;; \
@@ -71,6 +76,7 @@ RUN set -eux; \
     done; \
     for v in ${others} ${TIMESCALEDB_VERSION}; do \
         echo "=== building TimescaleDB $v ==="; \
+        cd /; \
         rm -rf /src; \
         git clone --depth 1 --branch "$v" \
             https://github.com/timescale/timescaledb.git /src; \
