@@ -3,12 +3,18 @@
 Custom container images for the [ktmb1](https://github.com/ktmb1) homelab,
 built and published to GHCR by [`.github/workflows/build.yaml`](.github/workflows/build.yaml).
 
-Each image is one directory containing a `Dockerfile`. To add one, create the
-directory and add a matrix entry to the build workflow.
+Two kinds of build live here:
 
-| Image                    | Purpose                                                        |
-| ------------------------ | -------------------------------------------------------------- |
-| `timescaledb-extension`  | TimescaleDB as a CloudNativePG extension image volume           |
+- **Images with a `Dockerfile` in this repo** — one directory each, built by
+  [`build.yaml`](.github/workflows/build.yaml). Add a matrix entry to add one.
+- **Images built from someone else's source** — a dedicated workflow checks out
+  the upstream repo and builds its Dockerfile. These have no directory here.
+
+| Image                   | Built from                          | Purpose                                               |
+| ----------------------- | ----------------------------------- | ----------------------------------------------------- |
+| `timescaledb-extension` | this repo (`Dockerfile`)            | TimescaleDB as a CloudNativePG extension image volume |
+| `aiolists`              | `amasolov/AIOLists` (`deploy`)      | AIOLists Stremio addon, from our fork                 |
+| `stremio-web`           | `Stremio/stremio-web` (release tag) | Stremio web UI                                        |
 
 Images are rebuilt weekly so base-image CVE fixes land without a code change.
 Pull requests build without pushing.
@@ -45,3 +51,23 @@ spec:
 `shared_preload_libraries` is still required: the volume supplies the `.so` on
 `dynamic_library_path`, but the library must be preloaded for Postgres to start
 once anything references it.
+
+## aiolists
+
+Built from our fork (`amasolov/AIOLists`, `deploy` branch), which carries a
+search-encoding fix that has no path into an upstream published image.
+Temporary: once [SebastianMorel/AIOLists#102](https://github.com/SebastianMorel/AIOLists/pull/102)
+merges and appears upstream, point the HelmRelease back at the upstream image
+and delete the workflow.
+
+Builds on demand, or when the fork pushes to `deploy` and triggers it:
+
+```bash
+gh api repos/ktmb1/containers/dispatches -f event_type=aiolists-rebuild
+```
+
+## stremio-web
+
+Built weekly from the latest `Stremio/stremio-web` release tag. The run is a
+no-op when that tag is already in GHCR, so it only builds on a real release.
+Renovate then opens a PR in `ktmb1/home-ops` to bump the pin.

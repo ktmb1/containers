@@ -1,0 +1,129 @@
+# Builds stremio-web from upstream source and publishes to GHCR.
+#
+# The cluster does not build images: it pulls ghcr.io/ktmb1/stremio-web at a
+# pinned tag, and Renovate opens a PR in ktmb1/home-ops when a newer tag
+# appears.
+#
+# The weekly schedule mirrors the old CronJob (Sundays 03:00 Australia/Sydney,
+# which is Saturday 16:00/17:00 UTC depending on DST — 16:00 UTC is used so the
+# run never drifts into Sunday-late).
+name: build-stremio-web
+
+on:
+  schedule:
+    - cron: "0 16 * * 6"
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: "Upstream git ref to build (blank = latest release tag)"
+        required: false
+        type: string
+
+concurrency:
+  group: build-stremio-web
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Resolve which upstream ref to build. Mirrors the old rebuild.sh: query the
+      # GitHub releases API for the latest tag unless one was passed explicitly.
+      - name: Resolve upstream revision
+        id: rev
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_REVISION: ${{ inputs.revision }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_REVISION}" ]; then
+            revision="${INPUT_REVISION}"
+            echo "Using explicitly requested revision: ${revision}"
+          else
+            revision="$(gh api repos/Stremio/stremio-web/releases/latest --jq '.tag_name')"
+            if [ -z "${revision}" ] || [ "${revision}" = "null" ]; then
+              echo "Could not resolve latest release tag from the GitHub API, aborting."
+              exit 1
+            fi
+            echo "Latest upstream release: ${revision}"
+          fi
+          echo "revision=${revision}" >> "$GITHUB_OUTPUT"
+          # Tags must be lowercase and free of characters GHCR rejects.
+          echo "tag=$(echo "${revision}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')" >> "$GITHUB_OUTPUT"
+
+      # Skip the build entirely when this tag already exists in GHCR, so the
+      # weekly run is a no-op unless upstream actually released something.
+      - name: Check whether this tag is already published
+        id: published
+        run: |
+          set -euo pipefail
+          token="$(curl -fsSL -u "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" \
+            "https://ghcr.io/token?scope=repository:ktmb1/stremio-web:pull&service=ghcr.io" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')"
+          code="$(curl -sSL -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${token}" \
+            -H "Accept: application/vnd.oci.image.index.v1+json" \
+            -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+            -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+            "https://ghcr.io/v2/ktmb1/stremio-web/manifests/${{ steps.rev.outputs.tag }}")"
+          if [ "${code}" = "200" ]; then
+            echo "Tag ${{ steps.rev.outputs.tag }} already published, nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag ${{ steps.rev.outputs.tag }} not present (HTTP ${code}), building."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout upstream source
+        if: steps.published.outputs.skip == 'false'
+        uses: actions/checkout@v4
+        with:
+          repository: Stremio/stremio-web
+          ref: ${{ steps.rev.outputs.revision }}
+          persist-credentials: false
+
+      - name: Set up Buildx
+        if: steps.published.outputs.skip == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: steps.published.outputs.skip == 'false'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Single-arch (amd64) to match the cluster's nodes; the old buildah
+      # strategy built amd64 only too.
+      - name: Build and push
+        if: steps.published.outputs.skip == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/ktmb1/stremio-web:${{ steps.rev.outputs.tag }}
+            ghcr.io/ktmb1/stremio-web:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/Stremio/stremio-web
+            org.opencontainers.image.revision=${{ steps.rev.outputs.revision }}
+            org.opencontainers.image.version=${{ steps.rev.outputs.revision }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.published.outputs.skip }}" = "true" ]; then
+            echo "Nothing to build — ghcr.io/ktmb1/stremio-web:${{ steps.rev.outputs.tag }} already exists." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Published \`ghcr.io/ktmb1/stremio-web:${{ steps.rev.outputs.tag }}\` from upstream \`${{ steps.rev.outputs.revision }}\`." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Renovate will open a PR to bump the tag in \`the stremio HelmRelease\`." >> "$GITHUB_STEP_SUMMARY"
+          fi
