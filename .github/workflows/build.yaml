@@ -44,13 +44,14 @@ jobs:
             # advertises; `versions` is everything whose .so ships, and must
             # contain `version`.
             #
-            # 2.25.2 is here because the db1 databases still record it in
-            # pg_extension - TimescaleDB loads the exact version-suffixed .so
-            # named there, so dropping it breaks every session on those
-            # databases. Remove it only once they have been moved to 2.29.2
-            # with ALTER EXTENSION timescaledb UPDATE.
+            # `versions` carries more than `version` only while a database still
+            # records an older one in pg_extension: TimescaleDB loads the exact
+            # version-suffixed .so named there, so dropping a version still in
+            # use breaks every session on that database. 2.25.2 was carried for
+            # that reason and has been dropped now the db1 databases are on
+            # 2.29.2.
             version: "2.29.2"
-            versions: "2.25.2 2.29.2"
+            versions: "2.29.2"
             pg_major: "18"
             # The extension is compiled against this image and verified to load
             # in it before anything is pushed. Keep it identical to the
