@@ -101,9 +101,13 @@ jobs:
         run: |
           set -euo pipefail
           out="$(mktemp -d)"
-          cid="$(docker create ${{ matrix.name }}:ci)"
-          docker export "$cid" | tar -x -C "$out"
-          docker rm -f "$cid" >/dev/null
+          # `docker create` needs a command and this image is FROM scratch with
+          # none, so unpack the saved layers instead. Every layer here is part
+          # of the extension payload, so extracting all of them is correct.
+          layers="$(mktemp -d)"
+          docker save ${{ matrix.name }}:ci | tar -x -C "$layers"
+          find "$layers" -name '*.tar' -print0 | xargs -0 -I{} tar -xf {} -C "$out"
+          test -d "$out/lib" && test -d "$out/share/extension"
           ./${{ matrix.context }}/verify.sh \
             "$out" \
             "${{ matrix.operand }}" \
