@@ -102,11 +102,25 @@ jobs:
           set -euo pipefail
           out="$(mktemp -d)"
           # `docker create` needs a command and this image is FROM scratch with
-          # none, so unpack the saved layers instead. Every layer here is part
-          # of the extension payload, so extracting all of them is correct.
+          # none, so unpack the saved layers instead. Layer paths come from the
+          # manifest: their naming differs between Docker versions and OCI
+          # layouts, so globbing for them is not reliable.
           layers="$(mktemp -d)"
           docker save ${{ matrix.name }}:ci | tar -x -C "$layers"
-          find "$layers" -name '*.tar' -print0 | xargs -0 -I{} tar -xf {} -C "$out"
+          python3 -c '
+          import json, subprocess, sys, os
+          root = sys.argv[1]
+          dest = sys.argv[2]
+          manifest = json.load(open(os.path.join(root, "manifest.json")))
+          layers = manifest[0]["Layers"]
+          if not layers:
+              sys.exit("image has no layers")
+          for layer in layers:
+              subprocess.run(
+                  ["tar", "-xf", os.path.join(root, layer), "-C", dest],
+                  check=True,
+              )
+          ' "$layers" "$out"
           test -d "$out/lib" && test -d "$out/share/extension"
           ./${{ matrix.context }}/verify.sh \
             "$out" \
