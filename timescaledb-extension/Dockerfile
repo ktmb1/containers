@@ -26,20 +26,22 @@ ARG PG_OPERAND_IMAGE=ghcr.io/cloudnative-pg/postgresql:18.3-standard-trixie
 # a scratch image with lib/ and share/extension/ at the root. CNPG appends
 # those to the operand's dynamic_library_path and extension_control_path.
 #
-# The image ships MORE THAN ONE TimescaleDB version, and that is deliberate.
+# The image CAN ship more than one TimescaleDB version, and sometimes must.
 # TimescaleDB's loader reads the version recorded in the database's pg_extension
-# catalog and dlopen()s exactly that timescaledb-<version>.so. If the databases
-# are on 2.25.2 and the image carries only 2.29.2, *every* session fails with
+# catalog and dlopen()s exactly that timescaledb-<version>.so. If a database is
+# on 2.25.2 and the image carries only 2.29.2, *every* session fails with
 # `could not access file "timescaledb-2.25.2"` - including a bare SELECT 1,
 # because the loader runs before any query. The third-party Postgres image this
 # replaced happened to carry nine versions, so the mismatch only surfaced when
 # an instance moved to the official operand.
 #
-# So: keep the version the databases are actually on until they have been
-# upgraded with ALTER EXTENSION timescaledb UPDATE. Only drop a version from
-# TIMESCALEDB_VERSIONS once no database still records it - check with
+# So when raising TIMESCALEDB_VERSION, keep the version the databases are
+# actually on in TIMESCALEDB_VERSIONS until they have been moved with
+# ALTER EXTENSION timescaledb UPDATE. Only drop a version once no database
+# still records it - check with
 #   SELECT extversion FROM pg_extension WHERE extname = 'timescaledb';
-# in every database, on every cluster that mounts this image.
+# in every database, on every cluster that mounts this image. The list is
+# down to a single version because that check came back clean for 2.25.2.
 ARG PG_MAJOR=18
 
 # The version whose control file wins: what CREATE EXTENSION timescaledb
@@ -49,7 +51,7 @@ ARG TIMESCALEDB_VERSION=2.29.2
 # Every version whose .so is built into the image, space separated. Must contain
 # TIMESCALEDB_VERSION. Any additional entry is a legacy version kept solely so
 # databases still on it can load, and therefore be upgraded.
-ARG TIMESCALEDB_VERSIONS="2.25.2 2.29.2"
+ARG TIMESCALEDB_VERSIONS="2.29.2"
 
 FROM ${PG_OPERAND_IMAGE} AS build
 ARG PG_MAJOR
