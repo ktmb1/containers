@@ -9,6 +9,19 @@
 # Nobody publishes TimescaleDB in that form: CNPG ships pgvector and pgaudit
 # only, and Timescale ships whole Postgres images. So we build it.
 #
+# The extension is compiled against the *operand* image, not Docker Hub's
+# postgres. This matters more than it looks: a TimescaleDB .so links against
+# Postgres server internals, and those change between minor releases. Docker
+# Hub's `postgres:18-trixie` is a floating tag that runs ahead of the operand -
+# at the time of writing it is 18.6 while the operand is 18.3 - and an extension
+# built there fails to load with `undefined symbol: palloc0_mul`, because that
+# symbol does not exist in 18.3. The build is green, the image is unusable, and
+# nothing catches it until Postgres refuses to start in the cluster.
+#
+# So build FROM the operand itself, and keep this pinned to the same tag the
+# cluster's Cluster.spec.imageName uses.
+ARG PG_OPERAND_IMAGE=ghcr.io/cloudnative-pg/postgresql:18.3-standard-trixie
+
 # The layout is dictated by CNPG and mirrors ghcr.io/cloudnative-pg/pgvector -
 # a scratch image with lib/ and share/extension/ at the root. CNPG appends
 # those to the operand's dynamic_library_path and extension_control_path.
@@ -38,16 +51,27 @@ ARG TIMESCALEDB_VERSION=2.29.2
 # databases still on it can load, and therefore be upgraded.
 ARG TIMESCALEDB_VERSIONS="2.25.2 2.29.2"
 
-FROM postgres:${PG_MAJOR}-trixie AS build
+FROM ${PG_OPERAND_IMAGE} AS build
 ARG PG_MAJOR
 ARG TIMESCALEDB_VERSION
 ARG TIMESCALEDB_VERSIONS
 
+# The operand runs as an unprivileged uid; apt needs root.
+USER 0
+
+# postgresql-server-dev-${PG_MAJOR} floats to the newest minor in the pgdg
+# archive (18.6) even on an 18.3 image, which would reintroduce exactly the
+# header/runtime mismatch this base image was chosen to avoid. Pin the dev
+# package to the operand's own postgresql-${PG_MAJOR} version so the headers
+# always match the server the extension will be loaded into.
 RUN set -eux; \
     apt-get update; \
+    pgver="$(dpkg-query -W -f='${Version}' "postgresql-${PG_MAJOR}")"; \
+    echo "building against postgresql-${PG_MAJOR} ${pgver}"; \
     apt-get install -y --no-install-recommends \
         build-essential cmake git ca-certificates \
-        postgresql-server-dev-${PG_MAJOR} libssl-dev libkrb5-dev; \
+        libssl-dev libkrb5-dev \
+        "postgresql-server-dev-${PG_MAJOR}=${pgver}"; \
     rm -rf /var/lib/apt/lists/*
 
 # Build each requested version in turn, all into the same prefix. The .so files

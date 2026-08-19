@@ -52,6 +52,21 @@ spec:
 `dynamic_library_path`, but the library must be preloaded for Postgres to start
 once anything references it.
 
+The extension is compiled **against the operand image itself**, not Docker Hub's
+`postgres`. A TimescaleDB `.so` links against Postgres server internals that
+change between minor releases, and `postgres:18-trixie` floats ahead of the
+operand — it was 18.6 while the operand was 18.3 — so an extension built there
+loads with `undefined symbol: palloc0_mul` and Postgres refuses to start. The
+build stays green throughout. The `operand` matrix entry in
+[`build.yaml`](.github/workflows/build.yaml) must therefore match the
+`Cluster.spec.imageName` the cluster runs.
+
+Every build then mounts the extension into that operand and checks each shipped
+version actually loads: `CREATE EXTENSION` at that exact version, a plain query
+(which is what fails for *every* session when a `.so` is missing), a hypertable
+round-trip, and — for legacy versions — `ALTER EXTENSION ... UPDATE` to the
+default with the data intact. Nothing is pushed until that passes.
+
 ## aiolists
 
 Built from our fork (`amasolov/AIOLists`, `deploy` branch), which carries a

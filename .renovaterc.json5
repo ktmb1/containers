@@ -61,12 +61,19 @@
     },
     {
       customType: "regex",
-      description: "Postgres base image tag in the timescaledb-extension Dockerfile",
+      description: "CNPG operand image the extension is built against and verified in",
+      managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
+      matchStrings: ["operand:\\s*\"(?<depName>[^:]+):(?<currentValue>[^\"]+)\""],
+      datasourceTemplate: "docker",
+      versioningTemplate: "docker",
+    },
+    {
+      customType: "regex",
+      description: "CNPG operand ARG default in the timescaledb-extension Dockerfile",
       managerFilePatterns: ["/^timescaledb-extension/Dockerfile$/"],
       // Only the ARG default carries a full version; the FROM line uses the
       // ARG, so matching here is enough to bump the build.
-      matchStrings: ["ARG PG_MAJOR=(?<currentValue>\\d+)"],
-      depNameTemplate: "postgres",
+      matchStrings: ["ARG PG_OPERAND_IMAGE=(?<depName>[^:]+):(?<currentValue>\\S+)"],
       datasourceTemplate: "docker",
       versioningTemplate: "docker",
     },
