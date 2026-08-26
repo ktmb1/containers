@@ -58,6 +58,19 @@ jobs:
             # Cluster.spec.imageName the cluster runs, or the published image
             # can fail to load there while the build stays green.
             operand: "ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie"
+
+          - name: chrony
+            context: chrony
+            # The full Debian package version, including the packaging revision
+            # (-3) and the stable-update suffix (+deb13u2). Renovate tracks this
+            # through the `deb` datasource - see .renovaterc.json5 - so a
+            # security update to Debian's chrony opens a PR here rather than
+            # landing silently in the weekly rebuild.
+            #
+            # Upstream chrony is frozen within a Debian stable release, so what
+            # actually moves is the part after the first "-". The Dockerfile
+            # installs this exact version, so the tag and the contents agree.
+            version: "4.6.1-3+deb13u2"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -86,11 +99,14 @@ jobs:
           context: ./${{ matrix.context }}
           platforms: linux/amd64
           load: true
+          # Only the timescaledb-extension build consumes these; an image whose
+          # Dockerfile declares no matching ARG ignores them.
           build-args: |
             PG_OPERAND_IMAGE=${{ matrix.operand }}
             PG_MAJOR=${{ matrix.pg_major }}
             TIMESCALEDB_VERSION=${{ matrix.version }}
             TIMESCALEDB_VERSIONS=${{ matrix.versions }}
+            CHRONY_VERSION=${{ matrix.version }}
           tags: ${{ matrix.name }}:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -99,6 +115,7 @@ jobs:
       # cannot prove those files load. This mounts the extension into the real
       # operand the way CNPG does and exercises every shipped version.
       - name: Verify the extension loads in the operand
+        if: ${{ matrix.name == 'timescaledb-extension' }}
         run: |
           set -euo pipefail
           out="$(mktemp -d)"
@@ -129,7 +146,41 @@ jobs:
             "${{ matrix.version }}" \
             "${{ matrix.versions }}"
 
-      # Only now, with the image proven loadable, publish it.
+      # A chrony image that builds proves nothing: every failure this image hit
+      # in development built cleanly and died at runtime (a USER directive, a
+      # missing /run/chrony, too few capabilities), and one did not even die -
+      # it served stratum 10 from its own reference while tracking upstream
+      # perfectly. So start it and ask it the time.
+      - name: Verify chrony serves NTP
+        if: ${{ matrix.name == 'chrony' }}
+        run: ./chrony/verify.sh ${{ matrix.name }}:ci
+
+      # The tag suffix differs by image: the extension is keyed to a Postgres
+      # major (the .so is only loadable in that one), while chrony is keyed to
+      # its own version alone.
+      - name: Resolve published tags
+        id: tags
+        run: |
+          set -euo pipefail
+          base="ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}"
+          if [ -n "${{ matrix.pg_major }}" ]; then
+            version="${{ matrix.version }}-${{ matrix.pg_major }}"
+          else
+            version="${{ matrix.version }}"
+          fi
+          # A Debian version like 4.6.1-3+deb13u2 is not a legal OCI tag: "+"
+          # is outside the permitted [a-zA-Z0-9._-] set and the registry
+          # rejects the reference outright. Map it to "_", which is legal and
+          # reversible by eye.
+          version="${version//+/_}"
+          {
+            echo "list<<EOF"
+            echo "${base}:${version}"
+            echo "${base}:${version}-${{ github.sha }}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # Only now, with the image proven working, publish it.
       - name: Push
         if: ${{ github.event_name != 'pull_request' }}
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -142,7 +193,6 @@ jobs:
             PG_MAJOR=${{ matrix.pg_major }}
             TIMESCALEDB_VERSION=${{ matrix.version }}
             TIMESCALEDB_VERSIONS=${{ matrix.versions }}
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:${{ matrix.version }}-${{ matrix.pg_major }}
-            ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:${{ matrix.version }}-${{ matrix.pg_major }}-${{ github.sha }}
+            CHRONY_VERSION=${{ matrix.version }}
+          tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha
