@@ -54,7 +54,11 @@
       customType: "regex",
       description: "TimescaleDB release tag in the build matrix",
       managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
-      matchStrings: ["version:\\s*\"(?<currentValue>.*?)\"\\s*\\n\\s*pg_major:"],
+      // Anchored on pg_major, which only the TimescaleDB entry has, but with
+      // the intervening `versions:` line allowed: it was added later and
+      // silently broke the original `version:`-then-`pg_major:` pairing, so
+      // TimescaleDB releases stopped being tracked with no visible failure.
+      matchStrings: ["version:\\s*\"(?<currentValue>.*?)\"(?:.|\\n)*?pg_major:"],
       depNameTemplate: "timescale/timescaledb",
       datasourceTemplate: "github-releases",
       extractVersionTemplate: "^(?<version>.*)$",
@@ -66,6 +70,33 @@
       matchStrings: ["operand:\\s*\"(?<depName>[^:]+):(?<currentValue>[^\"]+)\""],
       datasourceTemplate: "docker",
       versioningTemplate: "docker",
+    },
+    {
+      customType: "regex",
+      description: "chrony package version in the build matrix",
+      managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
+      // Anchored on the chrony matrix entry's own `version:` so this cannot
+      // match the TimescaleDB one above it, which the manager before this
+      // already owns.
+      matchStrings: ["name: chrony(?:.|\\n)*?version:\\s*\"(?<currentValue>[^\"]+)\""],
+      depNameTemplate: "chrony",
+      datasourceTemplate: "deb",
+      // Must match the base image's suite: a version from a different suite
+      // would not be installable by the Dockerfile's pinned apt-get.
+      registryUrlTemplate: "https://deb.debian.org/debian?suite=trixie&components=main&binaryArch=amd64",
+      // Debian versions ("4.6.1-3+deb13u2") are not semver; the deb versioning
+      // scheme knows how to order the revision and +deb13uN suffixes.
+      versioningTemplate: "deb",
+    },
+    {
+      customType: "regex",
+      description: "chrony package version pinned in the chrony Dockerfile",
+      managerFilePatterns: ["/^chrony/Dockerfile$/"],
+      matchStrings: ["ARG CHRONY_VERSION=(?<currentValue>\\S+)"],
+      depNameTemplate: "chrony",
+      datasourceTemplate: "deb",
+      registryUrlTemplate: "https://deb.debian.org/debian?suite=trixie&components=main&binaryArch=amd64",
+      versioningTemplate: "deb",
     },
     {
       customType: "regex",

@@ -13,6 +13,7 @@ Two kinds of build live here:
 | Image                   | Built from                          | Purpose                                               |
 | ----------------------- | ----------------------------------- | ----------------------------------------------------- |
 | `timescaledb-extension` | this repo (`Dockerfile`)            | TimescaleDB as a CloudNativePG extension image volume |
+| `chrony`                | this repo (`Dockerfile`)            | Serve-only NTP server for the LAN                     |
 | `aiolists`              | `amasolov/AIOLists` (`deploy`)      | AIOLists Stremio addon, from our fork                 |
 | `stremio-web`           | `Stremio/stremio-web` (release tag) | Stremio web UI                                        |
 
@@ -66,6 +67,49 @@ version actually loads: `CREATE EXTENSION` at that exact version, a plain query
 (which is what fails for *every* session when a `.so` is missing), a hypertable
 round-trip, and — for legacy versions — `ALTER EXTENSION ... UPDATE` to the
 default with the data intact. Nothing is pushed until that passes.
+
+## chrony
+
+A serve-only NTP server, so LAN devices can get time from something on the
+cluster instead of reaching the internet themselves. Consumed by `ktmb1/home-ops`
+as the `network/chrony` app, on a pinned LoadBalancer address.
+
+There is no official chrony container image — upstream ships source only — and
+the third-party wrappers all generate `chrony.conf` from environment variables
+in their own entrypoint. This builds Debian's packaged chrony instead and takes
+the config from the consumer, so what the daemon reads is whatever the
+HelmRelease mounted and nothing else.
+
+Two things about it are deliberate and easy to undo by accident:
+
+**It runs `chronyd -x` and is not granted `CAP_SYS_TIME`.** A container shares
+the host's time namespace, so a chrony that disciplines "its" clock is really
+disciplining the *node's* clock — the one Talos' own chronyd already owns. `-x`
+costs nothing in served accuracy: chronyd still tracks its sources and still
+serves the real upstream stratum, applying the offset it has computed to its
+replies rather than to the local clock. Measured at stratum 4 with refid
+`162.159.200.1`, stable across a multi-minute soak.
+
+**Its `chrony.conf` must not contain a `local` directive.** Combined with `-x`
+that pins the served stratum at 10 — chronyd keeps tracking Cloudflare at
+microsecond accuracy but answers clients from its own reference, so the source
+looks far worse than it is. `verify.sh` asserts the served stratum is below 10
+for exactly this reason.
+
+The image pins the exact Debian package version (`ARG CHRONY_VERSION`), and
+Renovate tracks it through the `deb` datasource against the trixie index, so a
+Debian security update opens a PR here instead of arriving unannounced in the
+weekly rebuild. Upstream chrony is frozen within a Debian stable release, so
+what actually moves is the packaging revision — `4.6.1-3+deb13u2` → `-3+deb13u3`.
+A stale pin fails the build loudly (`Version '...' for 'chrony' was not found`)
+rather than letting the image drift to a version the tag does not name. The
+published tag is that version with `+` mapped to `_`, since `+` is not a legal
+OCI tag character.
+
+`verify.sh` starts the built image with the consuming pod's capability set,
+waits for synchronisation, and queries it as a real NTP client. Every failure
+this image hit in development produced an image that built perfectly and failed
+at runtime, so the build alone is not evidence.
 
 ## aiolists
 
