@@ -38,7 +38,7 @@ RUN pip install --no-cache-dir \
     "Jinja2==3.1.6" \
     "ruamel.yaml==0.18.17" \
     "pyjwt==2.13.0" \
-    "numpy==2.3.5" \
+    "numpy==2.5.2" \
     "prometheus-client==0.26.0" \
     "protobuf==7.36.0" \
     "pvlib==0.15.2"
