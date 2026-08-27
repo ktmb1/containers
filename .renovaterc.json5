@@ -1,7 +1,10 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: ["config:recommended"],
-  schedule: ["every weekend"],
+  // No schedule, deliberately. Every image here is rebuilt and verified on the
+  // PR and automerged only if that passes, so there is no value in batching
+  // updates into a weekend window - it just means a Debian security update
+  // found on a Monday waits six days. Renovate runs whenever it runs.
 
   // Automerge is the default here, not the exception. Every image in this repo
   // is rebuilt by build.yaml on the PR, and Renovate only automerges once all
@@ -22,6 +25,24 @@
   lockFileMaintenance: { enabled: true, automerge: true },
 
   packageRules: [
+    {
+      // Pin every Docker reference to a digest. Without this, a floating tag
+      // is invisible to Renovate: debian:trixie-slim keeps its name across
+      // every Debian point release and security rebuild, and the CNPG operand
+      // is repushed under the same 18.6-standard-trixie tag. Nothing here
+      // would open a PR, and the drift would land unrecorded in the weekly
+      // cron rebuild instead. With a digest pinned, a rebased tag is an
+      // update: it opens a PR, the build verifies it, and it automerges.
+      //
+      // Note what this does NOT do: the published tag comes from the matrix
+      // `version`, not from the base image, so a digest-only rebuild pushes
+      // the SAME tag with new contents. ktmb1/home-ops pins every
+      // ghcr.io/ktmb1/* image by digest as well as tag, so it sees such a
+      // rebuild as a digest update - a consumer pinning by tag alone would
+      // not, and would swap contents on its next pull without a diff.
+      matchDatasources: ["docker"],
+      pinDigests: true,
+    },
     {
       matchManagers: ["github-actions"],
       groupName: "GitHub Actions",
@@ -67,7 +88,12 @@
       customType: "regex",
       description: "CNPG operand image the extension is built against and verified in",
       managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
-      matchStrings: ["operand:\\s*\"(?<depName>[^:]+):(?<currentValue>[^\"]+)\""],
+      // The digest is captured separately, not left to fall into currentValue.
+      // pinDigests appends "@sha256:..." here, and a currentValue of
+      // "18.6-standard-trixie@sha256:..." is not a tag Renovate can look up -
+      // the operand would quietly stop being tracked, the same way the
+      // TimescaleDB manager above once did.
+      matchStrings: ["operand:\\s*\"(?<depName>[^:]+):(?<currentValue>[^\"@]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?\""],
       datasourceTemplate: "docker",
       versioningTemplate: "docker",
     },
@@ -131,7 +157,9 @@
       managerFilePatterns: ["/^timescaledb-extension/Dockerfile$/"],
       // Only the ARG default carries a full version; the FROM line uses the
       // ARG, so matching here is enough to bump the build.
-      matchStrings: ["ARG PG_OPERAND_IMAGE=(?<depName>[^:]+):(?<currentValue>\\S+)"],
+      // As above: keep the digest out of currentValue so pinDigests does not
+      // break the lookup.
+      matchStrings: ["ARG PG_OPERAND_IMAGE=(?<depName>[^:]+):(?<currentValue>[^@\\s]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?"],
       datasourceTemplate: "docker",
       versioningTemplate: "docker",
     },

@@ -21,6 +21,17 @@ Two kinds of build live here:
 Images are rebuilt weekly so base-image CVE fixes land without a code change.
 Pull requests build without pushing.
 
+Renovate runs unscheduled and every base image is digest-pinned, so a rebased
+upstream tag — a Debian security rebuild of `trixie-slim`, a CNPG operand
+repush — is an update: it opens a PR, `build.yaml` builds and verifies it, and
+it automerges.
+
+A digest-only rebuild republishes the *same* tag with new contents, since the
+tag comes from the matrix `version`. That is fine for `ktmb1/home-ops`, which
+pins every `ghcr.io/ktmb1/*` image by digest alongside the tag and so sees the
+rebuild as a digest update. It does mean the tag alone does not identify the
+bytes: a consumer pinning by tag would swap contents silently on the next pull.
+
 ## timescaledb-extension
 
 CloudNativePG 1.30 can mount extensions into the Postgres operand from OCI
