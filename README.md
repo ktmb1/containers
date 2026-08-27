@@ -18,8 +18,21 @@ Two kinds of build live here:
 | `aiolists`              | `amasolov/AIOLists` (`deploy`)      | AIOLists Stremio addon, from our fork                 |
 | `stremio-web`           | `Stremio/stremio-web` (release tag) | Stremio web UI                                        |
 
-Images are rebuilt weekly so base-image CVE fixes land without a code change.
-Pull requests build without pushing.
+Only images whose own directory changed are built on a push; a change to
+[`build.yaml`](.github/workflows/build.yaml) rebuilds everything, since it
+carries the build args and verify steps. The weekly cron and a manual
+`workflow_dispatch` rebuild everything unconditionally. Pull requests build
+without pushing.
+
+Rebuilding an unchanged image is not free: it republishes the same tag with a
+new digest — the contents are identical apart from build timestamps — and each
+of those becomes a Renovate PR in `ktmb1/home-ops`, which is noise a real
+change would have to be spotted among.
+
+Base-image CVE fixes still land without a code change, but by a better route
+than a blind rebuild: Renovate pins base images by digest here, so a rebased
+`debian:trixie-slim` or CNPG operand opens a PR against the Dockerfile that
+pins it — which makes that image changed, and rebuilds exactly it.
 
 Renovate runs unscheduled and every base image is digest-pinned, so a rebased
 upstream tag — a Debian security rebuild of `trixie-slim`, a CNPG operand

@@ -2,8 +2,20 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: "Build"
 
-# Builds every image in this repo and pushes it to GHCR. Each image is one
+# Builds the images in this repo and pushes them to GHCR. Each image is one
 # directory with a Dockerfile; add a matrix entry to add an image.
+#
+# Only images whose own inputs changed are built. Rebuilding an unchanged image
+# republishes it under the same tag with a new digest - the contents are
+# identical apart from build timestamps (apt logs, /etc/shadow's age counter,
+# the ldconfig cache) - and each of those digests becomes a Renovate PR in
+# ktmb1/home-ops. That noise is not free: it is what a genuine
+# extension/operand divergence would have to be noticed among.
+#
+# Base-image CVE fixes therefore no longer rely on a blind weekly rebuild.
+# .renovaterc.json5 sets pinDigests, so a rebased debian:trixie-slim or CNPG
+# operand arrives as a digest PR against the Dockerfile that pins it - which
+# makes that image changed here, and rebuilds exactly it.
 #
 # On a pull request the images are built but not pushed, so a change can be
 # checked without publishing it.
@@ -14,9 +26,12 @@ on:
   pull_request:
     branches: [main]
     paths-ignore: ["**.md"]
-  # Rebuild on a schedule so base-image CVE fixes land without a code change.
+  # A safety net for what change detection cannot see: a base image rebuilt
+  # under its tag before Renovate has opened the digest PR, or a push whose
+  # build failed after the merge. Rebuilds everything, deliberately.
   schedule:
     - cron: "0 6 * * 1"
+  # The manual "rebuild it all now" escape hatch. Also rebuilds everything.
   workflow_dispatch:
 
 concurrency:
@@ -85,14 +100,70 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A push is diffed against its own parent, so the full history has to
+          # be here; a shallow clone would make the merge-base unreachable.
+          fetch-depth: 0
+
+      # Decide whether THIS image needs building. Each job answers only for
+      # itself, so the matrix above stays the single list of what exists - no
+      # second copy to fall out of step with it.
+      - name: Does this image need building?
+        id: changed
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CONTEXT: ${{ matrix.context }}
+        run: |
+          set -euo pipefail
+
+          # schedule and workflow_dispatch are the deliberate rebuild-all paths.
+          if [ "${EVENT}" = "schedule" ] || [ "${EVENT}" = "workflow_dispatch" ]; then
+            echo "${EVENT}: rebuilding regardless of what changed"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${EVENT}" = "pull_request" ]; then
+            base="${BASE_SHA}"
+          else
+            base="${BEFORE}"
+          fi
+
+          # A branch's first push reports an all-zero `before`, and a force-push
+          # can name a commit that is no longer reachable. Neither is a diff we
+          # can take, so build rather than silently skip.
+          if [ -z "${base}" ] || [ "${base}" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            echo "No usable base commit (${base:-unset}); building to be safe"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          files="$(git diff --name-only "${base}...HEAD")"
+          echo "Changed files:"
+          echo "${files}" | sed 's/^/  /'
+
+          # This image's own directory, or the workflow itself - which carries
+          # the build args, the verify steps and the matrix values, so a change
+          # to it can alter any image.
+          if echo "${files}" | grep -qE "^${CONTEXT}/" \
+             || echo "${files}" | grep -qxF ".github/workflows/build.yaml"; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "==> building ${CONTEXT}"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "==> nothing under ${CONTEXT}/ changed, skipping"
+          fi
 
       - name: Set up Buildx
+        if: ${{ steps.changed.outputs.build == 'true' }}
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Log in to GHCR
         # Skipped on pull_request: the token is read-only there and nothing is
         # pushed, so logging in would fail for no benefit.
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ github.event_name != 'pull_request' && steps.changed.outputs.build == 'true' }}
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -103,6 +174,7 @@ jobs:
       # is published. A push here would mean a broken image reaches GHCR - and
       # with Renovate automerging, reaches main - before anything checks it.
       - name: Build
+        if: ${{ steps.changed.outputs.build == 'true' }}
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ./${{ matrix.context }}
@@ -125,7 +197,7 @@ jobs:
       # cannot prove those files load. This mounts the extension into the real
       # operand the way CNPG does and exercises every shipped version.
       - name: Verify the extension loads in the operand
-        if: ${{ matrix.name == 'timescaledb-extension' }}
+        if: ${{ matrix.name == 'timescaledb-extension' && steps.changed.outputs.build == 'true' }}
         run: |
           set -euo pipefail
           out="$(mktemp -d)"
@@ -162,7 +234,7 @@ jobs:
       # it served stratum 10 from its own reference while tracking upstream
       # perfectly. So start it and ask it the time.
       - name: Verify chrony serves NTP
-        if: ${{ matrix.name == 'chrony' }}
+        if: ${{ matrix.name == 'chrony' && steps.changed.outputs.build == 'true' }}
         run: ./chrony/verify.sh ${{ matrix.name }}:ci
 
       # The point of this image is that Predbat's logs stay off the replicated
@@ -173,7 +245,7 @@ jobs:
       # across a rotation - the case where a symlink-based redirect silently
       # reverts to the PVC.
       - name: Verify Predbat keeps logs off the state volume
-        if: ${{ matrix.name == 'predbat' }}
+        if: ${{ matrix.name == 'predbat' && steps.changed.outputs.build == 'true' }}
         run: ./predbat/verify.sh ${{ matrix.name }}:ci
 
       # The tag suffix differs by image: the extension is keyed to a Postgres
@@ -181,6 +253,7 @@ jobs:
       # its own version alone.
       - name: Resolve published tags
         id: tags
+        if: ${{ steps.changed.outputs.build == 'true' }}
         run: |
           set -euo pipefail
           base="ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}"
@@ -194,16 +267,26 @@ jobs:
           # rejects the reference outright. Map it to "_", which is legal and
           # reversible by eye.
           version="${version//+/_}"
+          # One tag only. A second <version>-<git-sha> tag used to be published
+          # alongside this as an immutable per-build record, but @sha256: is
+          # already exactly that - an immutable, content-addressed name for the
+          # build - and consumers pin with it (ktmb1/home-ops writes
+          # <tag>@sha256:<digest> everywhere). The git-sha tag was a competing
+          # second name for the same image, and an actively harmful one:
+          # home-ops tracks this image with versioning=loose, which sorts the
+          # longer "2.29.2-18-<sha>" above "2.29.2-18" and offered it as a
+          # patch upgrade - a silent downgrade to whichever build sorted
+          # highest, pinning the cluster to a frozen tag that never gets
+          # rebuilds again.
           {
             echo "list<<EOF"
             echo "${base}:${version}"
-            echo "${base}:${version}-${{ github.sha }}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
       # Only now, with the image proven working, publish it.
       - name: Push
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ github.event_name != 'pull_request' && steps.changed.outputs.build == 'true' }}
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ./${{ matrix.context }}
