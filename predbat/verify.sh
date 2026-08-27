@@ -37,48 +37,85 @@ docker network create "${net}" >/dev/null
 # before it does anything else. This serves just enough of the API for startup
 # to get past that and reach the point where it is logging steadily.
 cat >"${workdir}/ha_stub.py" <<'PY'
-import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
+"""A stub Home Assistant: enough REST and websocket for Predbat to start.
+
+The websocket half is not optional. Predbat subscribes to state_changed over
+/api/websocket and gives up after ten consecutive failures, five seconds
+apart -- so a REST-only stub kills it about fifty seconds in, which is less
+time than the rotation check below needs. That produced a suite that passed or
+failed on how fast the runner was.
+"""
+
+from aiohttp import web, WSMsgType
+
+SERVICES = [{"domain": "script", "services": {"turn_on": {}}}]
+CONFIG = {"version": "2026.8.0", "unit_system": {}, "time_zone": "UTC"}
 
 
-class Handler(BaseHTTPRequestHandler):
-    def _send(self, payload, code=200):
-        body = json.dumps(payload).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_GET(self):
-        if self.path.startswith("/api/services"):
-            # Must be non-empty: ha.py treats a falsy /api/services as "cannot
-            # reach Home Assistant" and aborts startup with a bare ValueError.
-            self._send([{"domain": "script", "services": {"turn_on": {}}}])
-        elif self.path.startswith("/api/states"):
-            self._send([])
-        elif self.path.startswith("/api/config"):
-            self._send({"version": "2026.8.0", "unit_system": {}, "time_zone": "UTC"})
-        elif self.path.startswith("/api/"):
-            self._send({"message": "API running."})
-        else:
-            self._send({}, 404)
-
-    def do_POST(self):
-        length = int(self.headers.get("Content-Length") or 0)
-        self.rfile.read(length)
-        self._send([])
-
-    def log_message(self, *args):
-        pass
+async def services(request):
+    # Must be non-empty: ha.py treats a falsy /api/services as "cannot reach
+    # Home Assistant" and aborts startup with a bare ValueError.
+    return web.json_response(SERVICES)
 
 
-HTTPServer(("0.0.0.0", 8123), Handler).serve_forever()
+async def states(request):
+    return web.json_response([])
+
+
+async def config(request):
+    return web.json_response(CONFIG)
+
+
+async def generic(request):
+    return web.json_response({"message": "API running."})
+
+
+async def websocket(request):
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    # Home Assistant's handshake: greet, accept any token, then acknowledge
+    # each subscription so Predbat resets its error counter and settles.
+    await ws.send_json({"type": "auth_required", "ha_version": "2026.8.0"})
+
+    async for msg in ws:
+        if msg.type != WSMsgType.TEXT:
+            continue
+        try:
+            data = msg.json()
+        except ValueError:
+            continue
+
+        if data.get("type") == "auth":
+            await ws.send_json({"type": "auth_ok", "ha_version": "2026.8.0"})
+        elif "id" in data:
+            await ws.send_json({"id": data["id"], "type": "result", "success": True, "result": None})
+
+    return ws
+
+
+app = web.Application()
+app.add_routes(
+    [
+        web.get("/api/websocket", websocket),
+        web.get("/api/services", services),
+        web.get("/api/states", states),
+        web.get("/api/states/{entity}", states),
+        web.get("/api/config", config),
+        web.get("/api/", generic),
+        web.post("/api/{tail:.*}", generic),
+        web.get("/api/{tail:.*}", generic),
+    ]
+)
+
+web.run_app(app, host="0.0.0.0", port=8123, print=None)
 PY
 
+# Run the stub in the image under test: it already carries aiohttp, so this
+# needs no second image and no pip install at verify time.
 docker run -d --name "${ha}" --network "${net}" \
     -v "${workdir}/ha_stub.py:/ha_stub.py:ro" \
-    python:3.13-slim-trixie python3 /ha_stub.py >/dev/null
+    --entrypoint python3 "${image}" /ha_stub.py >/dev/null
 
 # --- Predbat's own config --------------------------------------------------
 # A minimal apps.yaml. ha_url/ha_key are the whole point of running outside the
@@ -262,5 +299,26 @@ if [ "${user}" = "0" ]; then
     echo "ERROR: Predbat is running as root." >&2
     exit 1
 fi
+
+# --- it must still be alive ------------------------------------------------
+# Predbat stops itself after ten consecutive websocket failures. A stub that
+# does not speak the websocket protocol therefore kills it about fifty seconds
+# in - and every check above would still have passed on a fast runner, because
+# they only look at files. Assert the process is actually still running, and
+# that it settled rather than limping through reconnects.
+echo "==> checking Predbat is still running"
+if ! docker inspect -f '{{.State.Running}}' "${name}" 2>/dev/null | grep -q true; then
+    echo "ERROR: Predbat is no longer running at the end of the run." >&2
+    docker logs --tail 40 "${name}" >&2
+    exit 1
+fi
+
+if docker exec "${name}" sh -c 'cat "$PREDBAT_LOG_DIR"/predbat.log' 2>/dev/null | grep -q "Web socket failed"; then
+    echo "ERROR: Predbat gave up on the websocket. The stub is not speaking" >&2
+    echo "       the Home Assistant protocol, so this run proved nothing" >&2
+    echo "       about steady-state behaviour." >&2
+    exit 1
+fi
+echo "    still running, websocket healthy"
 
 echo "==> all checks passed"
