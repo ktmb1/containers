@@ -71,6 +71,15 @@ jobs:
             # actually moves is the part after the first "-". The Dockerfile
             # installs this exact version, so the tag and the contents agree.
             version: "4.6.1-3+deb13u2"
+
+          - name: predbat
+            context: predbat
+            # The upstream Predbat release tag, tracked by Renovate through the
+            # github-releases datasource. The Dockerfile downloads this exact
+            # tag rather than letting Predbat's own startup.py fetch "latest"
+            # into the config volume at first boot, so the running version is a
+            # property of the image and not of when the volume was created.
+            version: "v8.53.3"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,6 +116,7 @@ jobs:
             TIMESCALEDB_VERSION=${{ matrix.version }}
             TIMESCALEDB_VERSIONS=${{ matrix.versions }}
             CHRONY_VERSION=${{ matrix.version }}
+            PREDBAT_VERSION=${{ matrix.version }}
           tags: ${{ matrix.name }}:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -155,6 +165,17 @@ jobs:
         if: ${{ matrix.name == 'chrony' }}
         run: ./chrony/verify.sh ${{ matrix.name }}:ci
 
+      # The point of this image is that Predbat's logs stay off the replicated
+      # PVC its state lives on, and that is invisible in a build: a broken
+      # redirect produces an image that starts perfectly and quietly writes
+      # 100MiB of rotating log onto the volume. This starts it against a stub
+      # Home Assistant and checks where the bytes actually land, including
+      # across a rotation - the case where a symlink-based redirect silently
+      # reverts to the PVC.
+      - name: Verify Predbat keeps logs off the state volume
+        if: ${{ matrix.name == 'predbat' }}
+        run: ./predbat/verify.sh ${{ matrix.name }}:ci
+
       # The tag suffix differs by image: the extension is keyed to a Postgres
       # major (the .so is only loadable in that one), while chrony is keyed to
       # its own version alone.
@@ -194,5 +215,6 @@ jobs:
             TIMESCALEDB_VERSION=${{ matrix.version }}
             TIMESCALEDB_VERSIONS=${{ matrix.versions }}
             CHRONY_VERSION=${{ matrix.version }}
+            PREDBAT_VERSION=${{ matrix.version }}
           tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha
