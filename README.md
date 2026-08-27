@@ -14,6 +14,7 @@ Two kinds of build live here:
 | ----------------------- | ----------------------------------- | ----------------------------------------------------- |
 | `timescaledb-extension` | this repo (`Dockerfile`)            | TimescaleDB as a CloudNativePG extension image volume |
 | `chrony`                | this repo (`Dockerfile`)            | Serve-only NTP server for the LAN                     |
+| `predbat`               | this repo (`Dockerfile`)            | Home battery prediction and control, off the Supervisor |
 | `aiolists`              | `amasolov/AIOLists` (`deploy`)      | AIOLists Stremio addon, from our fork                 |
 | `stremio-web`           | `Stremio/stremio-web` (release tag) | Stremio web UI                                        |
 
@@ -110,6 +111,79 @@ OCI tag character.
 waits for synchronisation, and queries it as a real NTP client. Every failure
 this image hit in development produced an image that built perfectly and failed
 at runtime, so the build alone is not evidence.
+
+## predbat
+
+[Predbat](https://github.com/springfall2008/batpred) predicts home battery
+behaviour and drives charging against a tariff. It is consumed by
+`ktmb1/home-ops` as the `smarthome/predbat` app, controlling the Powerwall 3
+through Home Assistant.
+
+Upstream supports two deployments: a Home Assistant add-on, which needs the
+Supervisor and so cannot run on Talos, and a community Docker fork
+(`nipar44/predbat_addon`) — a third party rebuilding someone else's
+application. This builds the upstream sources directly, from a release tag,
+with the dependency set pinned.
+
+Off the Supervisor there is no `SUPERVISOR_TOKEN`, so Predbat talks to Home
+Assistant over the ordinary REST + websocket API using `ha_url` and `ha_key`
+in `apps.yaml`. That is a supported upstream path, not a workaround.
+
+Three things about the image are deliberate:
+
+**The logs are redirected off the state volume.** Predbat writes its logs *and*
+its state — `predbat_config.json`, the ML models, `cache/` — into the working
+directory, by bare relative filename. On the cluster that directory is a
+replicated PVC, and the logs dominate it: on the add-on this replaced, 95MiB of
+`predbat.log` + `predbat.1-9.log` against 56MiB of real state. `patch-log-dir.py`
+routes the eight log call sites through `$PREDBAT_LOG_DIR`, which the
+HelmRelease points at an `emptyDir`. With the variable unset every path is
+byte-identical to upstream, which is what keeps the patch safe across version
+bumps — and each substitution is asserted, so an upstream refactor fails the
+build instead of silently reverting to the PVC.
+
+This cannot be done from outside the code, which is worth recording because
+both alternatives look like they work:
+
+- A **symlink farm** does not survive rotation. `os.rename("predbat.log",
+  "predbat.1.log")` renames the *symlink*, and the `open("predbat.log", "w")`
+  that follows creates a real file on the PVC — so logs migrate back after the
+  first 10MiB. `verify.sh` is run against a deliberately-broken symlink build
+  to confirm it catches exactly this.
+- **Pointing the CWD at the log directory** moves the state off the PVC
+  instead. Only `apps.yaml` is relocatable (`PREDBAT_APPS_FILE`); the config
+  JSON, the models and `cache/` are not.
+
+**The application is baked into the image, not downloaded at runtime.**
+Predbat's own `startup.py` fetches the latest release from GitHub into the
+config volume on first boot. That makes the running version a property of
+whenever the volume was created, needs egress to GitHub at runtime, and puts
+the application inside the backup. The Dockerfile downloads a pinned tag
+instead, and Renovate tracks it.
+
+**The install self-check does not need the network.** Predbat validates the
+files next to `hass.py` against a `manifest.yaml` on every start. The release
+tarball has no manifest — it is written by Predbat's GitHub downloader, the
+install path this image replaces — so without one Predbat calls the GitHub
+contents API on *every* start and then fails to write the result into
+root-owned `/opt/predbat`, leaving an error that reads like a fault.
+`write-manifest.py` generates it at build time from the files actually in the
+image, which matters because the image is not a byte-identical copy of the
+tarball: the non-amd64 prediction kernels are deleted and two files are
+patched, so an upstream manifest would report missing files and SHA mismatches
+on every start. The image starts clean with `--network none`.
+
+**There is no restart loop.** Upstream's standalone entrypoint wraps Predbat in
+a `while(1)` csh loop. That is not reproduced: Predbat exits cleanly when it
+cannot reach Home Assistant, and the loop would turn that into a container that
+looks healthy while failing every few seconds, instead of a visible
+`CrashLoopBackOff`.
+
+`verify.sh` starts the image against a stub Home Assistant and checks where the
+bytes land — including across a forced rotation, which is the case that
+separates a working redirect from one that has quietly reverted to the PVC. A
+build alone cannot show this: a broken redirect produces an image that starts
+perfectly and writes 100MiB onto the volume it was meant to keep clean.
 
 ## aiolists
 

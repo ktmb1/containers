@@ -100,6 +100,33 @@
     },
     {
       customType: "regex",
+      description: "Predbat release tag in the build matrix",
+      managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
+      // Anchored on the predbat matrix entry's own `version:` so it cannot
+      // match the TimescaleDB or chrony entries above it.
+      matchStrings: ["name: predbat(?:.|\\n)*?version:\\s*\"(?<currentValue>[^\"]+)\""],
+      depNameTemplate: "springfall2008/batpred",
+      datasourceTemplate: "github-releases",
+    },
+    {
+      customType: "regex",
+      description: "Predbat release tag pinned in the predbat Dockerfile",
+      managerFilePatterns: ["/^predbat/Dockerfile$/"],
+      matchStrings: ["ARG PREDBAT_VERSION=(?<currentValue>\\S+)"],
+      depNameTemplate: "springfall2008/batpred",
+      datasourceTemplate: "github-releases",
+    },
+    {
+      customType: "regex",
+      description: "Python dependencies pinned in the predbat Dockerfile",
+      managerFilePatterns: ["/^predbat/Dockerfile$/"],
+      // Predbat's own requirements.txt is almost entirely unpinned, so the
+      // versions are pinned in the Dockerfile instead and tracked here.
+      matchStrings: ["\"(?<depName>[a-zA-Z0-9_.-]+)==(?<currentValue>[^\"]+)\""],
+      datasourceTemplate: "pypi",
+    },
+    {
+      customType: "regex",
       description: "CNPG operand ARG default in the timescaledb-extension Dockerfile",
       managerFilePatterns: ["/^timescaledb-extension/Dockerfile$/"],
       // Only the ARG default carries a full version; the FROM line uses the
