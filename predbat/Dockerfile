@@ -36,7 +36,7 @@ RUN pip install --no-cache-dir \
     "aiohttp==3.14.3" \
     "aiomqtt==2.5.1" \
     "Jinja2==3.1.6" \
-    "ruamel.yaml==0.18.17" \
+    "ruamel.yaml==0.19.1" \
     "pyjwt==2.13.0" \
     "numpy==2.5.2" \
     "prometheus-client==0.26.0" \
