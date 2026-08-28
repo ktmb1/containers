@@ -81,16 +81,20 @@ EDITS = [
     # Without these the "Log" tab and the predbat.log download silently show
     # nothing once the files move, which looks like Predbat has stopped
     # logging rather than like a path problem.
+    # v8.53.5 replaced web.py's two inline literals with read_predbat_log()
+    # in utils.py, defaulting to these module constants. Patching them here
+    # covers every caller at once - the /api/log page and the get_log MCP
+    # tool - instead of each call site.
     (
-        "web.py",
-        'logfile = "predbat.log"',
-        'logfile = _predbat_log_path("predbat.log")',
+        "utils.py",
+        'PREDBAT_LOG_FILE = "predbat.log"',
+        'PREDBAT_LOG_FILE = _predbat_log_path("predbat.log")',
         1,
     ),
     (
-        "web.py",
-        'logfile_1 = "predbat.1.log"',
-        'logfile_1 = _predbat_log_path("predbat.1.log")',
+        "utils.py",
+        'PREDBAT_LOG_FILE_PREV = "predbat.1.log"',
+        'PREDBAT_LOG_FILE_PREV = _predbat_log_path("predbat.1.log")',
         1,
     ),
     (
@@ -131,6 +135,21 @@ def main(root):
         sys.exit("ERROR: could not find a class definition in web.py to anchor the helper.")
     web.write_text(web_text[:web_index] + HELPER + web_text[web_index:])
 
+    # utils.py holds PREDBAT_LOG_FILE / _PREV since v8.53.5, and everything
+    # (read_predbat_log, the get_log MCP tool) resolves through them.
+    #
+    # The helper must be defined ABOVE those constants, not before the first
+    # def like the other two files: the constants are module-level and call
+    # the helper at import time, so anchoring on "\ndef " - the first def is
+    # ~100 lines below them - would raise NameError on import.
+    utils = root / "utils.py"
+    utils_text = utils.read_text()
+    utils_anchor = "PREDBAT_LOG_FILE = "
+    utils_index = utils_text.find(utils_anchor)
+    if utils_index == -1:
+        sys.exit("ERROR: could not find PREDBAT_LOG_FILE in utils.py to anchor the helper.")
+    utils.write_text(utils_text[:utils_index] + HELPER.lstrip("\n") + utils_text[utils_index:])
+
     for name, old, new, expected in EDITS:
         path = root / name
         body = path.read_text()
@@ -147,7 +166,7 @@ def main(root):
 
     # Nothing may still reference a bare log filename, or that site writes to
     # the PVC while every other one writes to the log directory.
-    for name in ("hass.py", "web.py"):
+    for name in ("hass.py", "web.py", "utils.py"):
         body = (root / name).read_text()
         for line_no, line in enumerate(body.splitlines(), 1):
             if "_predbat_log_path" in line or "def " in line:
