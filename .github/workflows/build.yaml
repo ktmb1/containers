@@ -94,7 +94,7 @@ jobs:
             # tag rather than letting Predbat's own startup.py fetch "latest"
             # into the config volume at first boot, so the running version is a
             # property of the image and not of when the volume was created.
-            version: "v8.54.1"
+            version: "v8.54.2"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
