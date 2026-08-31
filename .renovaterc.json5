@@ -66,6 +66,17 @@
       automerge: false,
       dependencyDashboardApproval: true,
     },
+    {
+      // The CNPG operand is referenced twice - the `operand:` matrix entry in
+      // build.yaml and `ARG PG_OPERAND_IMAGE` in the extension Dockerfile -
+      // and the two are now owned by different managers (a custom regex and
+      // the built-in dockerfile one). They must not drift: the extension is
+      // compiled against the ARG and then verified against the matrix entry,
+      // so a bump landing in only one of them builds against one operand and
+      // tests against another. Grouping keeps both edits in a single PR.
+      matchPackageNames: ["ghcr.io/cloudnative-pg/postgresql"],
+      groupName: "CNPG operand",
+    },
   ],
 
   // The TimescaleDB version and PG major are build args in the workflow matrix
@@ -151,17 +162,17 @@
       matchStrings: ["\"(?<depName>[a-zA-Z0-9_.-]+)==(?<currentValue>[^\"]+)\""],
       datasourceTemplate: "pypi",
     },
-    {
-      customType: "regex",
-      description: "CNPG operand ARG default in the timescaledb-extension Dockerfile",
-      managerFilePatterns: ["/^timescaledb-extension/Dockerfile$/"],
-      // Only the ARG default carries a full version; the FROM line uses the
-      // ARG, so matching here is enough to bump the build.
-      // As above: keep the digest out of currentValue so pinDigests does not
-      // break the lookup.
-      matchStrings: ["ARG PG_OPERAND_IMAGE=(?<depName>[^:]+):(?<currentValue>[^@\\s]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?"],
-      datasourceTemplate: "docker",
-      versioningTemplate: "docker",
-    },
+    // Deliberately NO custom manager for timescaledb-extension/Dockerfile's
+    // `ARG PG_OPERAND_IMAGE=...`. The built-in dockerfile manager already
+    // extracts that line: `FROM ${PG_OPERAND_IMAGE}` makes Renovate resolve
+    // the ARG default, so the dep is found without help here.
+    //
+    // A custom manager on the same line is not merely redundant, it breaks
+    // updates. Both managers emit an edit to that one line, both land in the
+    // same branch, and the second one's expected content no longer matches
+    // the file the first already rewrote - the branch write aborts with
+    // "Error updating branch: update failure". That took out the whole
+    // pin-dependencies branch, debian:trixie-slim included, for every run
+    // between adding pinDigests and removing this manager.
   ],
 }
