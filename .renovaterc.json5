@@ -66,17 +66,18 @@
       automerge: false,
       dependencyDashboardApproval: true,
     },
-    {
-      // The CNPG operand is referenced twice - the `operand:` matrix entry in
-      // build.yaml and `ARG PG_OPERAND_IMAGE` in the extension Dockerfile -
-      // and the two are now owned by different managers (a custom regex and
-      // the built-in dockerfile one). They must not drift: the extension is
-      // compiled against the ARG and then verified against the matrix entry,
-      // so a bump landing in only one of them builds against one operand and
-      // tests against another. Grouping keeps both edits in a single PR.
-      matchPackageNames: ["ghcr.io/cloudnative-pg/postgresql"],
-      groupName: "CNPG operand",
-    },
+    // Deliberately NO groupName for ghcr.io/cloudnative-pg/postgresql. The two
+    // references - the `operand:` matrix entry in build.yaml and
+    // `ARG PG_OPERAND_IMAGE` in the extension Dockerfile - already share a
+    // branch without one: they produce two updates identical in every field
+    // (same dep, value, digest and updateType), so Renovate folds them into a
+    // single pin-dependencies branch that edits both files.
+    //
+    // Adding a groupName splits them onto their own branch and stops that
+    // folding, leaving two indistinguishable pinDigest writes in one branch.
+    // The branch write then fails with "Error updating branch: update
+    // failure" and no PR is ever opened - which is what a group rule added
+    // here did until it was removed.
   ],
 
   // The TimescaleDB version and PG major are build args in the workflow matrix
