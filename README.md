@@ -56,23 +56,54 @@ Nobody publishes TimescaleDB in that form — CNPG ships `pgvector` and `pgaudit
 only, and Timescale ships whole Postgres images — so this builds it.
 
 The image is `FROM scratch` with `lib/` and `share/extension/` at the root,
-mirroring `ghcr.io/cloudnative-pg/pgvector`. It is built `-DAPACHE_ONLY=ON`, so
-it carries only the Apache-2.0 licensed core (hypertables, compression,
-continuous aggregates) and none of the Timescale-License parts.
+mirroring `ghcr.io/cloudnative-pg/pgvector`.
+
+### Licensing: this package must stay private
+
+The image is built with TSL included (`-DAPACHE_ONLY=OFF`), because compression
+and continuous aggregates are Timescale-License features, not Apache-2.0 ones.
+It was previously built `-DAPACHE_ONLY=ON` under the mistaken belief that the
+Apache core covered them; it does not. An Apache-only build ships no
+`timescaledb-tsl-<version>.so`, installs cleanly, creates hypertables happily,
+and then fails the first time a compression policy is added with
+`functionality not supported under the current license`.
+
+Running TSL costs nothing — the TSL grants use "without charge". What TSL §2.2
+prohibits is database-as-a-service and "copying or distributing any TSL Licensed
+Software". Publishing these binaries from a public registry is distribution.
+
+**So `ghcr.io/ktmb1/timescaledb-extension` must be a private GHCR package.** That
+is a package setting on GitHub, not something this repo can enforce — check it
+under the package's *Package settings → Danger Zone → Change visibility*.
+
+Two consequences for consumers:
+
+- Nodes need pull credentials. CNPG's `spec.postgresql.extensions[].image` is a
+  Kubernetes *image volume* and has only `reference` and `pullPolicy` — there is
+  no `imagePullSecrets` on it, and the cluster-level `spec.imagePullSecrets`
+  does not apply to it. The pull uses the node's own registry credentials, so
+  the nodes must be able to authenticate to GHCR.
+- `docker pull` of this image now requires a login.
 
 Consumed by `ktmb1/home-ops` as:
 
 ```yaml
 spec:
-    imageName: ghcr.io/cloudnative-pg/postgresql:18.3-standard-trixie
+    imageName: ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie
     postgresql:
         extensions:
             - name: timescaledb
               image:
-                  reference: ghcr.io/ktmb1/timescaledb-extension:2.29.2-18
+                  reference: ghcr.io/ktmb1/timescaledb-extension:2.29.2-18@sha256:...
         shared_preload_libraries:
             - timescaledb
 ```
+
+The operand tag there and the one this image is built against must match: the
+`.so` links against Postgres server internals, which change between minors.
+home-ops pins the extension by digest as well as tag, so a rebuild under the
+same tag arrives as a reviewable Renovate PR rather than silently on the next
+pull.
 
 `shared_preload_libraries` is still required: the volume supplies the `.so` on
 `dynamic_library_path`, but the library must be preloaded for Postgres to start

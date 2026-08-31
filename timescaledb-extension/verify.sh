@@ -10,6 +10,12 @@
 # So: mount the extension into the operand exactly as CNPG does, and exercise
 # every version the image claims to ship.
 #
+# "Exercise" now means more than loading. Creating a hypertable and inserting
+# rows uses only the Apache-2.0 core, so those checks pass on an APACHE_ONLY
+# build that cannot compress at all - which is exactly what shipped once. The
+# TSL features this image exists to provide (compression, continuous
+# aggregates) are therefore called for real below.
+#
 # Usage: verify.sh <extension-dir> <operand-image> <default-version> <all-versions>
 set -euo pipefail
 
@@ -25,6 +31,12 @@ echo "  all versions:    ${all_versions}"
 for v in ${all_versions}; do
     test -f "${ext_dir}/lib/timescaledb-${v}.so" \
         || { echo "missing lib/timescaledb-${v}.so in built image" >&2; exit 1; }
+    # Compression and continuous aggregates live in the TSL module. An
+    # APACHE_ONLY build omits it and still produces a perfectly working
+    # hypertable, so file presence is checked here and the behaviour itself is
+    # exercised below.
+    test -f "${ext_dir}/lib/timescaledb-tsl-${v}.so" \
+        || { echo "missing lib/timescaledb-tsl-${v}.so in built image" >&2; exit 1; }
 done
 
 # Each version gets its own run: a database records one version in pg_extension,
@@ -76,6 +88,46 @@ CONF
                          WHERE hypertable_name='"'"'m'"'"';")"
             [ "$chunks" -ge 1 ] || { echo "hypertable produced no chunks" >&2; exit 1; }
 
+            # Compression is the reason this image is not built APACHE_ONLY,
+            # and it is the one capability whose absence is invisible until a
+            # policy is added months later. An Apache-only build reaches this
+            # line happily: everything above is Apache-licensed. So call a TSL
+            # entry point and require it to work.
+            #
+            # The license GUC must read "timescale"; on an Apache-only build it
+            # is "apache" and every call below fails with
+            # `functionality not supported under the current license`.
+            lic="$(q "SHOW timescaledb.license;")"
+            [ "$lic" = "timescale" ] \
+                || { echo "timescaledb.license is ${lic}, want timescale (built APACHE_ONLY?)" >&2; exit 1; }
+
+            # Compress a real chunk and check the data survives the round trip.
+            # Columnstore has to be enabled on the hypertable first - since 2.18
+            # compress_chunk() on a table without it fails with "columnstore not
+            # enabled". Both the ALTER and compress_chunk() are TSL, as is
+            # decompress_chunk().
+            q "ALTER TABLE m SET (timescaledb.enable_columnstore = true);" >/dev/null
+            chunk="$(q "SELECT c FROM show_chunks('"'"'m'"'"') c LIMIT 1;")"
+            q "SELECT compress_chunk('"'"'${chunk}'"'"');" >/dev/null
+            comp="$(q "SELECT count(*) FROM timescaledb_information.chunks
+                       WHERE hypertable_name='"'"'m'"'"' AND is_compressed;")"
+            [ "$comp" -ge 1 ] || { echo "compress_chunk did not compress anything" >&2; exit 1; }
+            after_c="$(q "SELECT count(*) FROM m;")"
+            [ "$after_c" = "1000" ] \
+                || { echo "rows lost across compression: $after_c" >&2; exit 1; }
+            q "SELECT decompress_chunk('"'"'${chunk}'"'"');" >/dev/null
+
+            # Continuous aggregates are the other TSL feature this image is
+            # expected to provide.
+            q "CREATE MATERIALIZED VIEW m_daily
+               WITH (timescaledb.continuous) AS
+               SELECT time_bucket('"'"'1 day'"'"', t) AS bucket, avg(v)
+               FROM m GROUP BY 1 WITH NO DATA;" >/dev/null
+            cagg="$(q "SELECT count(*) FROM timescaledb_information.continuous_aggregates
+                       WHERE view_name='"'"'m_daily'"'"';")"
+            [ "$cagg" = "1" ] || { echo "continuous aggregate not created" >&2; exit 1; }
+            q "DROP MATERIALIZED VIEW m_daily;" >/dev/null
+
             # A legacy version must be upgradable to the default - that is the
             # only reason it is still in the image.
             if [ "${TS_VERSION}" != "${TS_DEFAULT}" ]; then
@@ -86,9 +138,9 @@ CONF
                 still="$(q "SELECT count(*) FROM m;")"
                 [ "$still" = "1000" ] \
                     || { echo "rows lost across update: $still" >&2; exit 1; }
-                echo "  ${TS_VERSION} loads, works, and updates to ${TS_DEFAULT}"
+                echo "  ${TS_VERSION} loads, compresses, aggregates, and updates to ${TS_DEFAULT}"
             else
-                echo "  ${TS_VERSION} loads and works"
+                echo "  ${TS_VERSION} loads, compresses and aggregates"
             fi
         '
     echo "::endgroup::"

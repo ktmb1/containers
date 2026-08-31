@@ -66,13 +66,19 @@ USER 0
 # header/runtime mismatch this base image was chosen to avoid. Pin the dev
 # package to the operand's own postgresql-${PG_MAJOR} version so the headers
 # always match the server the extension will be loaded into.
+#
+# libicu-dev is needed only by the TSL sources: tsl/src/nodes/vector_agg
+# includes Postgres' pg_locale.h, which includes <unicode/ucol.h>. The operand
+# ships libicu76 at runtime but no headers, so an APACHE_ONLY build never
+# needed this and a TSL build fails at 94% without it:
+#   fatal error: unicode/ucol.h: No such file or directory
 RUN set -eux; \
     apt-get update; \
     pgver="$(dpkg-query -W -f='${Version}' "postgresql-${PG_MAJOR}")"; \
     echo "building against postgresql-${PG_MAJOR} ${pgver}"; \
     apt-get install -y --no-install-recommends \
         build-essential cmake git ca-certificates \
-        libssl-dev libkrb5-dev \
+        libssl-dev libkrb5-dev libicu-dev \
         "postgresql-server-dev-${PG_MAJOR}=${pgver}"; \
     rm -rf /var/lib/apt/lists/*
 
@@ -82,9 +88,26 @@ RUN set -eux; \
 # overwritten by each pass. TIMESCALEDB_VERSION is therefore built LAST, so its
 # control file - and thus default_version - is the one that survives.
 #
-# -DAPACHE_ONLY=ON builds only the Apache-2.0 licensed core, leaving out the
-# Timescale License (TSL) parts. That keeps the image redistributable and still
-# covers hypertables, compression and continuous aggregates.
+# The build deliberately does NOT pass -DAPACHE_ONLY=ON. That flag builds only
+# the Apache-2.0 core and omits the TSL module, and it used to be set here with
+# a comment claiming the result "still covers hypertables, compression and
+# continuous aggregates". Only hypertables was true. Compression and continuous
+# aggregates live in tsl/, so an APACHE_ONLY image ships no
+# timescaledb-tsl-<version>.so, and the SQL still declares compress_chunk,
+# add_compression_policy and add_continuous_aggregate_policy - they just fail
+# at CALL time with `functionality not supported under the current license`.
+# Nothing catches that at install time, and the old verify.sh did not call them.
+#
+# Licensing, since this is the reason the flag was there. TSL source is
+# available and self-hosting it costs nothing (TSL 2.1: "may be used under this
+# TSL Agreement without charge"). What TSL 2.2 prohibits is providing
+# database-as-a-service and "copying or distributing any TSL Licensed Software"
+# - so the constraint is on PUBLISHING these binaries, not on running them.
+#
+# Therefore: ghcr.io/ktmb1/timescaledb-extension MUST be a private package.
+# It was public when this changed, which was fine for an Apache-only image and
+# is not fine for this one. Making it private is a GitHub package setting, not
+# something this repo can assert - see the README section this commit adds.
 #
 # Each pass starts with `cd /`: from the second iteration onward the shell is
 # still inside /src/build from the previous one, and `rm -rf /src` would delete
@@ -107,7 +130,7 @@ RUN set -eux; \
         git clone --depth 1 --branch "$v" \
             https://github.com/timescale/timescaledb.git /src; \
         cd /src; \
-        ./bootstrap -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAPACHE_ONLY=ON \
+        ./bootstrap -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAPACHE_ONLY=OFF \
             -DREGRESS_CHECKS=OFF -DWARNINGS_AS_ERRORS=OFF; \
         cd build && make -j"$(nproc)" && make install; \
     done; \
@@ -122,12 +145,23 @@ RUN set -eux; \
     ls -la /out/lib /out/share/extension
 
 # Fail the build rather than publish an image that would break a running
-# database: every requested version must have produced its own .so, and the
-# surviving control file must name TIMESCALEDB_VERSION as default_version.
+# database: every requested version must have produced its own .so and its
+# matching TSL .so, and the surviving control file must name
+# TIMESCALEDB_VERSION as default_version.
+#
+# The timescaledb-tsl-$v.so check is what would have caught the APACHE_ONLY
+# mistake at build time. Compression and continuous aggregates live in that
+# module; without it the image installs cleanly and only fails when a policy is
+# actually added, which is far too late. The `cp` glob above already collects
+# it - the point of asserting is that a future flag change cannot drop it
+# silently.
 RUN set -eux; \
     for v in ${TIMESCALEDB_VERSIONS}; do \
         test -f "/out/lib/timescaledb-$v.so" \
             || { echo "missing /out/lib/timescaledb-$v.so" >&2; exit 1; }; \
+        test -f "/out/lib/timescaledb-tsl-$v.so" \
+            || { echo "missing /out/lib/timescaledb-tsl-$v.so - built without TSL?" >&2; \
+                 exit 1; }; \
     done; \
     test -f /out/lib/timescaledb.so; \
     grep -q "^default_version = '${TIMESCALEDB_VERSION}'" \
