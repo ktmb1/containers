@@ -122,6 +122,26 @@
     },
     {
       customType: "regex",
+      description: "PostGIS package version in the build matrix",
+      managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
+      // Anchored on the postgis-extension entry's own `version:` so it cannot
+      // match the TimescaleDB one, which the manager above already owns (that
+      // one anchors on `pg_major:`, which this entry also has - hence the
+      // explicit name anchor here).
+      //
+      // Tracked as the Debian source package rather than a GitHub release: the
+      // Dockerfile installs pgdg's postgresql-<major>-postgis-3, so what
+      // matters is the version pgdg actually ships, not what PostGIS has
+      // tagged. The Dockerfile asserts the control file's default_version
+      // matches, so a mismatch fails the build rather than shipping.
+      matchStrings: ["name: postgis-extension(?:.|\\n)*?version:\\s*\"(?<currentValue>[^\"]+)\""],
+      depNameTemplate: "postgis",
+      datasourceTemplate: "deb",
+      registryUrlTemplate: "https://apt.postgresql.org/pub/repos/apt?suite=trixie-pgdg&components=main&binaryArch=amd64",
+      versioningTemplate: "deb",
+    },
+    {
+      customType: "regex",
       description: "chrony package version in the build matrix",
       managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
       // Anchored on the chrony matrix entry's own `version:` so this cannot
