@@ -85,7 +85,7 @@ jobs:
             # does not ship. `version` must match the pgdg package's
             # default_version; the Dockerfile asserts that rather than trusting
             # it.
-            version: "3.6.4"
+            version: "3.6.4+dfsg-2.pgdg13+1"
             pg_major: "18"
             # Same rule as timescaledb-extension: keep this identical to the
             # Cluster.spec.imageName the cluster runs. The bundled libraries are
