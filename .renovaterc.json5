@@ -134,6 +134,29 @@
       // matters is the version pgdg actually ships, not what PostGIS has
       // tagged. The Dockerfile asserts the control file's default_version
       // matches, so a mismatch fails the build rather than shipping.
+      //
+      // The deb datasource returns full Debian versions
+      // ("3.6.4+dfsg-2.pgdg13+1"), but this field cannot hold one. It is used
+      // two ways that both require the bare upstream version:
+      //
+      //   1. postgis-extension/Dockerfile greps the built control file for
+      //      `default_version = '<this>'`, and postgis.control records the
+      //      UPSTREAM version - "3.6.4", never the packaging suffix. A full
+      //      Debian string fails that assertion and the build exits 1.
+      //   2. The published tag is <version>-<pg_major>, and "+" is not a legal
+      //      character in an OCI tag, so "3.6.4+dfsg-2.pgdg13+1-18" could not
+      //      be pushed even if the assertion passed.
+      //
+      // Without extractVersion this manager can therefore only ever propose
+      // values that fail - as it did in #34. Tracking pgdg is still right (what
+      // ships matters, not what PostGIS tagged); only the written value needs
+      // narrowing.
+      //
+      // Note this makes packaging-only bumps invisible: "+dfsg-1" to "+dfsg-2"
+      // extracts to the same 3.6.4 and opens nothing. That is the intended
+      // behaviour - the tag records extension contents, and a repackage that
+      // does not move default_version does not change what the tag means.
+      extractVersionTemplate: "^(?<version>\\d+\\.\\d+\\.\\d+)",
       matchStrings: ["name: postgis-extension(?:.|\\n)*?version:\\s*\"(?<currentValue>[^\"]+)\""],
       depNameTemplate: "postgis",
       datasourceTemplate: "deb",
