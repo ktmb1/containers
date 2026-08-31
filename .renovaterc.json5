@@ -108,6 +108,17 @@
       matchStrings: ["operand:\\s*\"(?<depName>[^:]+):(?<currentValue>[^\"@]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?\""],
       datasourceTemplate: "docker",
       versioningTemplate: "docker",
+      // Required, not cosmetic. Without a template Renovate falls back to
+      // substituting currentValue with newValue inside the matched string,
+      // and a pinDigest leaves newValue EQUAL to currentValue - the tag does
+      // not move, only a digest is appended. The substitution is then a no-op,
+      // the file is never modified, and the branch write fails with
+      // "Error updating branch: update failure" with no PR opened.
+      //
+      // The built-in dockerfile manager supplies its own template, which is
+      // why the same pin succeeds against the extension Dockerfile's ARG and
+      // failed only here. Spelling it out gives the digest somewhere to go.
+      autoReplaceStringTemplate: "operand: \"{{depName}}:{{newValue}}{{#if newDigest}}@{{newDigest}}{{/if}}\"",
     },
     {
       customType: "regex",
