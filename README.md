@@ -13,6 +13,7 @@ Two kinds of build live here:
 | Image                   | Built from                          | Purpose                                               |
 | ----------------------- | ----------------------------------- | ----------------------------------------------------- |
 | `timescaledb-extension` | this repo (`Dockerfile`)            | TimescaleDB as a CloudNativePG extension image volume |
+| `postgis-extension`     | pgdg package, repackaged            | PostGIS as a CloudNativePG extension image volume     |
 | `chrony`                | this repo (`Dockerfile`)            | Serve-only NTP server for the LAN                     |
 | `predbat`               | this repo (`Dockerfile`)            | Home battery prediction and control, off the Supervisor |
 | `aiolists`              | `amasolov/AIOLists` (`deploy`)      | AIOLists Stremio addon, from our fork                 |
@@ -123,6 +124,59 @@ version actually loads: `CREATE EXTENSION` at that exact version, a plain query
 (which is what fails for *every* session when a `.so` is missing), a hypertable
 round-trip, and — for legacy versions — `ALTER EXTENSION ... UPDATE` to the
 default with the data intact. Nothing is pushed until that passes.
+
+## postgis-extension
+
+The second CNPG extension image volume, built so the Home Assistant **LTSS**
+table can live on `db1`: LTSS stores `location geometry(Point,4326)`, and the
+official operand ships no PostGIS.
+
+Unlike `timescaledb-extension` this is **not compiled from source**. pgdg
+publishes `postgresql-<major>-postgis-3` built against the same Postgres
+packaging the operand uses, so the image installs that and repackages it into
+the `lib/` + `share/extension/` layout CNPG mounts.
+
+### Why it bundles shared libraries
+
+CNPG adds the image's `lib/` to `dynamic_library_path`, which is how Postgres
+finds `postgis-3.so`. That path means nothing to the **dynamic linker**, which
+then has to resolve that file's own `NEEDED` entries — `libgeos_c`, `libproj`,
+`libjson-c`, `libprotobuf-c`. The operand ships none of them, `LD_LIBRARY_PATH`
+is empty there, and `/etc/ld.so.conf.d` never mentions `/extensions`.
+
+So those libraries travel inside the image, and the consuming `Cluster` **must**
+set `ld_library_path`, plus `PROJ_DATA` so PROJ can find its grid database:
+
+```yaml
+- name: postgis
+  image:
+      reference: ghcr.io/ktmb1/postgis-extension:3.6.4-18@sha256:...
+  ld_library_path:
+      - /lib
+  env:
+      - name: PROJ_DATA
+        value: /extensions/postgis/proj
+```
+
+Only libraries the operand does *not* already provide are copied. The build
+snapshots `/usr/lib` before and after installing PostGIS and copies only the
+difference — bundling a library the operand already has would shadow its
+security-updated copy with a frozen one.
+
+`postgis_raster` and `postgis_sfcgal` are deliberately **not** shipped. Raster
+links against GDAL, which pulls in HDF5, poppler, MariaDB and the DejaVu fonts —
+95 packages against 22, and roughly 400MB against 66MB. Nothing in LTSS uses
+raster. `postgis` and `postgis_topology` are included.
+
+### Gotcha: `cp -aL`, not `cp -a`
+
+Debian routes the unversioned control files through `/etc/alternatives`
+(`postgis.control` → `/etc/alternatives/postgresql-18-postgis.control`), which
+does not exist inside a `FROM scratch` image. Preserving those symlinks yields a
+file `ls` shows and `cat` cannot read, and Postgres reports only
+`extension "postgis" is not available`. The build now fails on any dangling
+symlink instead.
+
 
 ## chrony
 
