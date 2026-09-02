@@ -9,7 +9,7 @@
 # Off the Supervisor, Predbat talks to Home Assistant over the ordinary REST +
 # websocket API using ha_url/ha_key in apps.yaml; SUPERVISOR_TOKEN, which the
 # add-on relies on, simply does not exist here.
-FROM python:3.14-slim-trixie@sha256:656d12e70054d5fda18a045e2494c96701e9792dd1445f95b3d038df954f57e9
+FROM python:3.14-slim-trixie@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
 
 # The upstream release tag. Renovate tracks this through the github-releases
 # datasource (see .renovaterc.json5), so a Predbat release opens a PR here.
