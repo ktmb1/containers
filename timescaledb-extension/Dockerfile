@@ -20,7 +20,7 @@
 #
 # So build FROM the operand itself, and keep this pinned to the same tag the
 # cluster's Cluster.spec.imageName uses.
-ARG PG_OPERAND_IMAGE=ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie@sha256:71eef62330076deb985c8ffb1abeb957d86779c3911a8057c0b97f3c5a30b50b
+ARG PG_OPERAND_IMAGE=ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie@sha256:670026a375a908c3c2f6b5eeb1c56a06d2a15d375959f401d2aed8b8dd99f50e
 
 # The layout is dictated by CNPG and mirrors ghcr.io/cloudnative-pg/pgvector -
 # a scratch image with lib/ and share/extension/ at the root. CNPG appends
