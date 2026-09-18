@@ -65,8 +65,8 @@ jobs:
             # use breaks every session on that database. 2.25.2 was carried for
             # that reason and has been dropped now the db1 databases are on
             # 2.29.2.
-            version: "2.30.0"
-            versions: "2.30.0"
+            version: "2.30.1"
+            versions: "2.30.1"
             pg_major: "18"
             # The extension is compiled against this image and verified to load
             # in it before anything is pushed. Keep it identical to the
