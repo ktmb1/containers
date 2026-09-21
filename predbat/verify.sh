@@ -215,7 +215,10 @@ echo "==> waiting for the rotation to happen"
 deadline=$((SECONDS + 180))
 rotated=""
 while [ $SECONDS -lt $deadline ]; do
-    if [ -f "${workdir}/logs/predbat.1.log" ]; then
+    # predbat.01.log since v9.1.0 (#5076); predbat.1.log is the pre-9.1.0
+    # spelling, still accepted here so this script does not have to move in
+    # lockstep with a version bump to keep working.
+    if [ -f "${workdir}/logs/predbat.01.log" ] || [ -f "${workdir}/logs/predbat.1.log" ]; then
         rotated=yes
         break
     fi
@@ -235,7 +238,7 @@ if [ -z "${rotated}" ]; then
     docker logs --tail 40 "${name}" >&2
     exit 1
 fi
-echo "    rotated: predbat.1.log is in the log directory"
+echo "    rotated: $(cd "${workdir}/logs" && ls predbat.0*.log predbat.[0-9].log 2>/dev/null | head -1) is in the log directory"
 
 leaked="$(find "${workdir}/config" -name "predbat*.log" 2>/dev/null || true)"
 if [ -n "${leaked}" ]; then

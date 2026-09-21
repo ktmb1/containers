@@ -5,15 +5,16 @@ Predbat opens, rotates and serves its logs by bare relative filename, so they
 land in the working directory -- which is also where its state lives
 (predbat_config.json, the ML .npz models, cache/). On Kubernetes that directory
 is a replicated PVC, and the logs are the bulk of it: on the Home Assistant
-addon this replaces, 95MiB of predbat.log + predbat.1-9.log against 56MiB of
-real state. Replicating a rotating debug log across DRBD peers is waste.
+addon this replaces, 95MiB of predbat.log + its rotated copies against 56MiB
+of real state. Replicating a rotating debug log across DRBD peers is waste.
 
 This cannot be fixed from outside the code:
 
-  * A symlink farm does not survive rotation. os.rename("predbat.log",
-    "predbat.1.log") renames the *symlink*, and the open("predbat.log", "w")
-    that follows then creates a real file on the PVC -- so logs silently
-    migrate back onto it after the first 10MiB. Verified, not assumed.
+  * A symlink farm does not survive rotation. The post-rotation
+    os.rename("predbat.log", ...) renames the *symlink*, and the
+    open("predbat.log", "w") that follows then creates a real file on the PVC
+    -- so logs silently migrate back onto it after the first 10MiB. Verified,
+    not assumed.
   * Pointing the CWD at the log directory would move the *state* off the PVC
     instead: only apps.yaml is relocatable (PREDBAT_APPS_FILE); the config
     JSON, the ML models and cache/ are all opened by bare relative name.
@@ -45,8 +46,52 @@ def _predbat_log_path(filename):
 '''
 
 # (file, old, new, expected occurrences)
+#
+# v9.1.0 (#5076) moved rotation out of hass.py into utils.py and gave the
+# rotated logs two-digit names, which is why this list is so much shorter than
+# it was for v9.0.2. Every rotated-log path now resolves through
+# predbat_log_name()/predbat_log_name_legacy(), so patching those two functions
+# covers rotate_predbat_logs(), predbat_log_file_prev() and the hass.py rename
+# in one edit each, instead of chasing five inline literals. Fewer, wider
+# seams: the trade is that a change to either helper's *body* upstream now
+# breaks a build that a literal-by-literal patch might have survived, which is
+# the direction this should fail in.
 EDITS = [
-    # --- hass.py: open and rotate -------------------------------------------
+    # --- utils.py: the live log ---------------------------------------------
+    # read_predbat_log() defaults to this, so the /api/log page and the get_log
+    # MCP tool both follow it. Without it the "Log" tab silently shows nothing
+    # once the files move, which reads like Predbat has stopped logging rather
+    # than like a path problem.
+    (
+        "utils.py",
+        'PREDBAT_LOG_FILE = "predbat.log"',
+        'PREDBAT_LOG_FILE = _predbat_log_path("predbat.log")',
+        1,
+    ),
+    # --- utils.py: every rotated-log name -----------------------------------
+    # These two are the choke point. rotate_predbat_logs() renames between
+    # them, predbat_log_file_prev() probes them with os.path.exists(), and
+    # hass.py's post-rotation rename targets predbat_log_name(1) - so routing
+    # the helpers through _predbat_log_path() moves all of it at once.
+    #
+    # The legacy helper has to move too, even though nothing writes that form
+    # any more: it is how rotate_predbat_logs() finds single-digit files left
+    # by an older Predbat. Unpatched it would probe the *state volume* for
+    # them, find none, and strand any pre-upgrade logs in the log directory
+    # forever under the old name.
+    (
+        "utils.py",
+        'return "predbat.{:02d}.log".format(number)',
+        'return _predbat_log_path("predbat.{:02d}.log".format(number))',
+        1,
+    ),
+    (
+        "utils.py",
+        'return "predbat.{}.log".format(number)',
+        'return _predbat_log_path("predbat.{}.log".format(number))',
+        1,
+    ),
+    # --- hass.py: open the live log -----------------------------------------
     (
         "hass.py",
         'self.logfile = open("predbat.log", "a")',
@@ -59,48 +104,22 @@ EDITS = [
         'self.logfile = open(_predbat_log_path("predbat.log"), "w")',
         1,
     ),
+    # The rename's destination is predbat_log_name(1), already patched above;
+    # only the source literal needs moving here.
     (
         "hass.py",
-        'os.rename("predbat.log", "predbat.1.log")',
-        'os.rename(_predbat_log_path("predbat.log"), _predbat_log_path("predbat.1.log"))',
+        'os.rename("predbat.log", predbat_log_name(1))',
+        'os.rename(_predbat_log_path("predbat.log"), predbat_log_name(1))',
         1,
     ),
-    (
-        "hass.py",
-        'filename = "predbat." + format(num_logs) + ".log"',
-        'filename = _predbat_log_path("predbat." + format(num_logs) + ".log")',
-        1,
-    ),
-    (
-        "hass.py",
-        'newfile = "predbat." + format(num_logs + 1) + ".log"',
-        'newfile = _predbat_log_path("predbat." + format(num_logs + 1) + ".log")',
-        1,
-    ),
-    # --- web.py: the UI reads the same files back ---------------------------
-    # Without these the "Log" tab and the predbat.log download silently show
-    # nothing once the files move, which looks like Predbat has stopped
-    # logging rather than like a path problem.
-    # v8.53.5 replaced web.py's two inline literals with read_predbat_log()
-    # in utils.py, defaulting to these module constants. Patching them here
-    # covers every caller at once - the /api/log page and the get_log MCP
-    # tool - instead of each call site.
-    (
-        "utils.py",
-        'PREDBAT_LOG_FILE = "predbat.log"',
-        'PREDBAT_LOG_FILE = _predbat_log_path("predbat.log")',
-        1,
-    ),
-    (
-        "utils.py",
-        'PREDBAT_LOG_FILE_PREV = "predbat.1.log"',
-        'PREDBAT_LOG_FILE_PREV = _predbat_log_path("predbat.1.log")',
-        1,
-    ),
+    # --- web.py: the download endpoint --------------------------------------
+    # predbat_log_file_prev() is patched via the name helpers, so the first
+    # argument arrives already resolved; also_file= is the live log and still
+    # needs moving. as_file= is the browser's download filename, not a path.
     (
         "web.py",
-        'html_file_load("predbat.1.log", also_file="predbat.log", as_file="predbat.log")',
-        'html_file_load(_predbat_log_path("predbat.1.log"), also_file=_predbat_log_path("predbat.log"), as_file="predbat.log")',
+        'html_file_load(predbat_log_file_prev(), also_file="predbat.log", as_file="predbat.log")',
+        'html_file_load(predbat_log_file_prev(), also_file=_predbat_log_path("predbat.log"), as_file="predbat.log")',
         1,
     ),
 ]
@@ -166,12 +185,17 @@ def main(root):
 
     # Nothing may still reference a bare log filename, or that site writes to
     # the PVC while every other one writes to the log directory.
+    #
+    # Matched as a prefix rather than against the two exact names: since
+    # v9.1.0 the rotated logs are built by format string ("predbat.{:02d}.log"
+    # and the legacy "predbat.{}.log"), so a literal-equality check would look
+    # clean while a whole rotation slot family still resolved to the CWD.
     for name in ("hass.py", "web.py", "utils.py"):
         body = (root / name).read_text()
         for line_no, line in enumerate(body.splitlines(), 1):
             if "_predbat_log_path" in line or "def " in line:
                 continue
-            if '"predbat.log"' in line or '"predbat.1.log"' in line:
+            if '"predbat.' in line and '.log"' in line:
                 # as_file= is a download filename, not a path on disk.
                 if "as_file=" in line:
                     continue
