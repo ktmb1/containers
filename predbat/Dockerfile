@@ -41,7 +41,7 @@ RUN pip install --no-cache-dir \
     "numpy==2.5.3" \
     "prometheus-client==0.26.0" \
     "protobuf==7.36.2" \
-    "pvlib==0.15.2"
+    "pvlib==0.16.1"
 
 # curl for the download, ca-certificates for TLS to GitHub; both are removed
 # again in the same layer so neither ships in the final image.
