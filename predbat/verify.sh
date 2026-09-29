@@ -26,6 +26,12 @@ workdir="$(mktemp -d)"
 cleanup() {
     docker rm -f "${name}" "${ha}" >/dev/null 2>&1 || true
     docker network rm "${net}" >/dev/null 2>&1 || true
+    # Predbat writes into the bind mounts as 65532, and not everything it
+    # creates stays writable by others: v9.3's config/cache/ does not, so the
+    # runner user cannot remove it and the host-side rm fails the job after
+    # every check has passed. Remove the contents as root from inside.
+    docker run --rm --user 0:0 --entrypoint rm -v "${workdir}:/w" "${image}" \
+        -rf /w/config /w/logs >/dev/null 2>&1 || true
     rm -rf "${workdir}"
 }
 trap cleanup EXIT
