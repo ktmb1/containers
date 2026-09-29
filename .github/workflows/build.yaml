@@ -25,6 +25,9 @@ on:
     paths-ignore: ["**.md"]
   pull_request:
     branches: [main]
+    # labeled/unlabeled re-run the checks when timescaledb/drop-version is
+    # added, so the TimescaleDB versions check can pass without a new push.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     paths-ignore: ["**.md"]
   # A safety net for what change detection cannot see: a base image rebuilt
   # under its tag before Renovate has opened the digest PR, or a push whose
@@ -62,11 +65,17 @@ jobs:
             # `versions` carries more than `version` only while a database still
             # records an older one in pg_extension: TimescaleDB loads the exact
             # version-suffixed .so named there, so dropping a version still in
-            # use breaks every session on that database. 2.25.2 was carried for
-            # that reason and has been dropped now the db1 databases are on
-            # 2.29.2.
+            # use breaks every session on that database. 2.29.2 is carried for
+            # that reason: 2.30.0 and 2.30.1 were automerged with `versions`
+            # collapsed to the new value alone, which would have broken every
+            # db1 database still on 2.29.2 (ktmb1/home-ops#290).
+            #
+            # Keep `versions` directly after `version`. Renovate's TimescaleDB
+            # manager rewrites both lines together, appending the new release
+            # to the current one, and the "TimescaleDB versions kept" step
+            # below fails any PR that drops a version the base branch shipped.
             version: "2.30.1"
-            versions: "2.30.1"
+            versions: "2.29.2 2.30.1"
             pg_major: "18"
             # The extension is compiled against this image and verified to load
             # in it before anything is pushed. Keep it identical to the
@@ -173,6 +182,42 @@ jobs:
             echo "build=false" >> "$GITHUB_OUTPUT"
             echo "==> nothing under ${CONTEXT}/ changed, skipping"
           fi
+
+      # Dropping a version from `versions` is only safe once no database still
+      # records it in pg_extension, which nothing in this repo can see. So a
+      # PR may only drop one deliberately: fail unless every version the base
+      # branch ships is still here, or the PR carries the label below. This
+      # is what keeps a Renovate bump that rewrites `versions` from
+      # automerging - it happened twice before this check existed.
+      - name: TimescaleDB versions kept
+        if: ${{ matrix.name == 'timescaledb-extension' && github.event_name == 'pull_request' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          VERSIONS: ${{ matrix.versions }}
+          DROP_ALLOWED: ${{ contains(github.event.pull_request.labels.*.name, 'timescaledb/drop-version') }}
+        run: |
+          set -euo pipefail
+          base_versions="$(git show "${BASE_SHA}:.github/workflows/build.yaml" \
+            | yq '.jobs.build.strategy.matrix.include[] | select(.name == "timescaledb-extension") | .versions // ""')"
+          echo "base:   ${base_versions}"
+          echo "this PR: ${VERSIONS}"
+          dropped=""
+          for v in ${base_versions}; do
+            case " ${VERSIONS} " in
+              *" ${v} "*) ;;
+              *) dropped="${dropped} ${v}" ;;
+            esac
+          done
+          if [ -z "${dropped}" ]; then
+            echo "No version dropped"
+            exit 0
+          fi
+          if [ "${DROP_ALLOWED}" = "true" ]; then
+            echo "Dropping${dropped}: allowed by the timescaledb/drop-version label"
+            exit 0
+          fi
+          echo "::error::This PR drops TimescaleDB${dropped} from versions. A database still on a dropped version fails every session once it mounts the image. Confirm with SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'; in every database, then add the timescaledb/drop-version label - or keep the version."
+          exit 1
 
       - name: Set up Buildx
         if: ${{ steps.changed.outputs.build == 'true' }}
