@@ -41,17 +41,17 @@ ARG PG_OPERAND_IMAGE=ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie@sha2
 # still records it - check with
 #   SELECT extversion FROM pg_extension WHERE extname = 'timescaledb';
 # in every database, on every cluster that mounts this image. 2.29.2 stays
-# until the db1 databases have been moved to 2.30.1.
+# until the db1 databases have been moved to 2.30.2.
 ARG PG_MAJOR=18
 
 # The version whose control file wins: what CREATE EXTENSION timescaledb
 # installs by default, and what ALTER EXTENSION ... UPDATE targets.
-ARG TIMESCALEDB_VERSION=2.30.1
+ARG TIMESCALEDB_VERSION=2.30.2
 
 # Every version whose .so is built into the image, space separated. Must contain
 # TIMESCALEDB_VERSION. Any additional entry is a legacy version kept solely so
 # databases still on it can load, and therefore be upgraded.
-ARG TIMESCALEDB_VERSIONS="2.29.2 2.30.1"
+ARG TIMESCALEDB_VERSIONS="2.29.2 2.30.2"
 
 FROM ${PG_OPERAND_IMAGE} AS build
 ARG PG_MAJOR
