@@ -87,11 +87,22 @@
       customType: "regex",
       description: "TimescaleDB release tag in the build matrix",
       managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
-      // Anchored on pg_major, which only the TimescaleDB entry has, but with
-      // the intervening `versions:` line allowed: it was added later and
-      // silently broke the original `version:`-then-`pg_major:` pairing, so
-      // TimescaleDB releases stopped being tracked with no visible failure.
-      matchStrings: ["version:\\s*\"(?<currentValue>.*?)\"(?:.|\\n)*?pg_major:"],
+      // Anchored on the `versions:` line that directly follows `version:`,
+      // which only the TimescaleDB entry has.
+      //
+      // The template matters more than the match. Renovate's default is to
+      // substitute newValue for currentValue across the whole matched string,
+      // and when `versions` equalled `version` that swapped the list's only
+      // entry too: 2.30.0, 2.30.1 and 2.30.2 each automerged with the version
+      // every database was on dropped from the image (ktmb1/home-ops#290).
+      //
+      // Instead the list becomes "<current> <new>": the version databases are
+      // on now keeps shipping beside the release they can be upgraded to. Any
+      // older legacy entry is not carried - a template cannot see the rest of
+      // the list - so in that case build.yaml's "TimescaleDB versions kept"
+      // check fails the PR and it waits for a human instead of automerging.
+      matchStrings: ["version:\\s*\"(?<currentValue>[^\"]+)\"\\n(?<indentation>[ \\t]*)versions:\\s*\"[^\"]*\""],
+      autoReplaceStringTemplate: "version: \"{{newValue}}\"\n{{indentation}}versions: \"{{currentValue}} {{newValue}}\"",
       depNameTemplate: "timescale/timescaledb",
       datasourceTemplate: "github-releases",
       extractVersionTemplate: "^(?<version>.*)$",
