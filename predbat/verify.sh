@@ -117,11 +117,14 @@ app.add_routes(
 web.run_app(app, host="0.0.0.0", port=8123, print=None)
 PY
 
-# Run the stub in the image under test: it already carries aiohttp, so this
-# needs no second image and no pip install at verify time.
-docker run -d --name "${ha}" --network "${net}" \
-    -v "${workdir}/ha_stub.py:/ha_stub.py:ro" \
-    --entrypoint python3 "${image}" /ha_stub.py >/dev/null
+# The stub is started only after Predbat - see "waits for Home Assistant"
+# below. It runs in the image under test: that already carries aiohttp, so
+# this needs no second image and no pip install at verify time.
+start_ha_stub() {
+    docker run -d --name "${ha}" --network "${net}" \
+        -v "${workdir}/ha_stub.py:/ha_stub.py:ro" \
+        --entrypoint python3 "${image}" /ha_stub.py >/dev/null
+}
 
 # --- Predbat's own config --------------------------------------------------
 # A minimal apps.yaml. ha_url/ha_key are the whole point of running outside the
@@ -156,6 +159,44 @@ docker run -d --name "${name}" --network "${net}" \
     -v "${workdir}/logs:/var/log/predbat" \
     "${image}" >/dev/null
 echo "::endgroup::"
+
+# --- it waits for Home Assistant -------------------------------------------
+# Predbat checks Home Assistant once at startup and never again, so starting
+# it before Home Assistant is up used to leave it stuck with no web UI until
+# the liveness probe killed it. The entrypoint (wait-for-ha.py) now holds it
+# back until /api/services answers. Prove that: start Predbat with no Home
+# Assistant at all, check it is waiting rather than exiting or starting, then
+# bring the stub up and let the rest of the suite run against it.
+echo "==> checking it waits for Home Assistant"
+sleep 10
+if ! docker inspect -f '{{.State.Running}}' "${name}" 2>/dev/null | grep -q true; then
+    echo "ERROR: container exited while Home Assistant was unreachable." >&2
+    docker logs "${name}" >&2
+    exit 1
+fi
+if ! docker logs "${name}" 2>&1 | grep -q "wait-for-ha: Home Assistant at .* not ready"; then
+    echo "ERROR: no wait-for-ha retry lines while Home Assistant was down." >&2
+    docker logs "${name}" >&2
+    exit 1
+fi
+if docker logs "${name}" 2>&1 | grep -q "Starting Standalone Predbat"; then
+    echo "ERROR: Predbat started before Home Assistant was reachable." >&2
+    docker logs "${name}" >&2
+    exit 1
+fi
+echo "    waiting: $(docker logs "${name}" 2>&1 | grep -c 'not ready') retries, Predbat not started"
+
+start_ha_stub
+deadline=$((SECONDS + 60))
+until docker logs "${name}" 2>&1 | grep -q "wait-for-ha: Home Assistant at .* is answering"; do
+    if [ $SECONDS -ge $deadline ]; then
+        echo "ERROR: still waiting 60s after the Home Assistant stub started." >&2
+        docker logs "${name}" >&2
+        exit 1
+    fi
+    sleep 2
+done
+echo "    started once Home Assistant answered"
 
 # --- wait for it to be logging ---------------------------------------------
 echo "==> waiting for Predbat to start"
