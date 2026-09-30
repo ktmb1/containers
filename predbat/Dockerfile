@@ -80,9 +80,15 @@ RUN set -eux; \
 COPY patch-log-dir.py /tmp/patch-log-dir.py
 RUN python3 /tmp/patch-log-dir.py /opt/predbat && rm /tmp/patch-log-dir.py
 
+# The entrypoint: waits for Home Assistant's /api/services before exec-ing
+# Predbat, because Predbat checks Home Assistant once at startup and never
+# again - see the script's docstring. Outside /opt/predbat so the manifest
+# below keeps describing upstream's files only.
+COPY wait-for-ha.py /usr/local/lib/predbat/wait-for-ha.py
+
 # Fail the build if the patched sources do not compile, rather than shipping an
 # image that dies on first start.
-RUN python3 -m compileall -q /opt/predbat/hass.py /opt/predbat/web.py
+RUN python3 -m compileall -q /opt/predbat/hass.py /opt/predbat/web.py /usr/local/lib/predbat/wait-for-ha.py
 
 # Predbat validates its own install against manifest.yaml on every start. The
 # release tarball has no manifest - it is written by Predbat's GitHub
@@ -116,4 +122,8 @@ EXPOSE 5052
 # would hide crashes from Kubernetes, which should be the thing deciding
 # whether to restart this pod, and turn a CrashLoopBackOff into a container
 # that looks healthy while failing every few seconds.
-ENTRYPOINT ["python3", "/opt/predbat/hass.py"]
+#
+# wait-for-ha.py is not that loop. It runs once, before Predbat, and execs
+# /opt/predbat/hass.py - so Predbat is still PID 1, still exits on its own
+# fatal errors, and Kubernetes still sees every crash.
+ENTRYPOINT ["python3", "/usr/local/lib/predbat/wait-for-ha.py"]
