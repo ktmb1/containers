@@ -258,6 +258,24 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # home-ops refuses an extension whose recorded operand is not the one its
+      # Cluster runs, so the label has to be exactly the matrix operand - a
+      # Dockerfile that stopped passing PG_OPERAND_IMAGE through would label
+      # the image with its stale ARG default, or with nothing.
+      - name: Verify the recorded operand
+        if: ${{ matrix.operand != '' && steps.changed.outputs.build == 'true' }}
+        env:
+          IMAGE: ${{ matrix.name }}:ci
+          OPERAND: ${{ matrix.operand }}
+        run: |
+          set -euo pipefail
+          recorded="$(docker image inspect --format '{{ index .Config.Labels "io.ktmb1.pg-operand" }}' "${IMAGE}")"
+          echo "recorded: ${recorded}"
+          if [ "${recorded}" != "${OPERAND}" ]; then
+            echo "::error::io.ktmb1.pg-operand is '${recorded}', expected '${OPERAND}'"
+            exit 1
+          fi
+
       # The Dockerfile's own checks prove the right files were produced; they
       # cannot prove those files load. This mounts the extension into the real
       # operand the way CNPG does and exercises every shipped version.

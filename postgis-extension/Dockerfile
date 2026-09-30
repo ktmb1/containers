@@ -110,4 +110,10 @@ RUN set -eux; \
     test ! -e /out/lib/postgis_raster-3.so
 
 FROM scratch
+# Record the exact operand this was compiled against. A FROM scratch image
+# otherwise carries nothing saying which Postgres it belongs to, and the .so
+# only loads in that minor. ktmb1/home-ops compares this with the digest its
+# Cluster.spec.imageName pins, so the two cannot be merged out of step.
+ARG PG_OPERAND_IMAGE
+LABEL io.ktmb1.pg-operand="${PG_OPERAND_IMAGE}"
 COPY --from=build /out/ /
