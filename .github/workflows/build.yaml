@@ -142,6 +142,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CONTEXT: ${{ matrix.context }}
+          NAME: ${{ matrix.name }}
         run: |
           set -euo pipefail
 
@@ -172,17 +173,55 @@ jobs:
           echo "Changed files:"
           echo "${files}" | sed 's/^/  /'
 
-          # This image's own directory, or the workflow itself - which carries
-          # the build args, the verify steps and the matrix values, so a change
-          # to it can alter any image.
-          if echo "${files}" | grep -qE "^${CONTEXT}/" \
-             || echo "${files}" | grep -qxF ".github/workflows/build.yaml"; then
+          # This image's own directory always means a build.
+          if echo "${files}" | grep -qE "^${CONTEXT}/"; then
             echo "build=true" >> "$GITHUB_OUTPUT"
-            echo "==> building ${CONTEXT}"
-          else
-            echo "build=false" >> "$GITHUB_OUTPUT"
-            echo "==> nothing under ${CONTEXT}/ changed, skipping"
+            echo "==> ${CONTEXT}/ changed, building"
+            exit 0
           fi
+
+          # This workflow is shared by every image, but most edits to it touch
+          # one image's matrix entry - a Renovate version bump, say. Treating
+          # any edit as "rebuild everything" republished every image under its
+          # same tag with a new digest, and each became a no-op Renovate PR in
+          # ktmb1/home-ops (a Predbat bump rebuilt timescaledb-extension, whose
+          # digest PR then restarted db1 for nothing).
+          #
+          # So compare semantically, as JSON, which also drops comments:
+          #   - a change to the shared part - what is not a matrix entry -
+          #     can affect every image, so it builds them all;
+          #   - otherwise build only if this image's own entry changed.
+          #
+          # What counts as shared depends on the event. On a pull request
+          # nothing is pushed, so every shared change builds: an edited verify
+          # step gets exercised before it merges. On a push the build is
+          # published, so only the Build and Push steps count - they are what
+          # goes into an image. A change to a verify step, or to this very
+          # detection, has already been proven on its PR and would otherwise
+          # republish every image unchanged.
+          if echo "${files}" | grep -qxF ".github/workflows/build.yaml"; then
+            wf=".github/workflows/build.yaml"
+            if [ "${EVENT}" = "pull_request" ]; then
+              shared='del(.jobs.build.strategy.matrix.include)'
+            else
+              shared='[.jobs.build.steps[] | select(.name == "Build" or .name == "Push")]'
+            fi
+            entry=".jobs.build.strategy.matrix.include[] | select(.name == \"${NAME}\")"
+            if [ "$(git show "${base}:${wf}" | yq -o=json "${shared}")" != "$(yq -o=json "${shared}" "${wf}")" ]; then
+              echo "build=true" >> "$GITHUB_OUTPUT"
+              echo "==> shared part of ${wf} changed, building"
+              exit 0
+            fi
+            if [ "$(git show "${base}:${wf}" | yq -o=json "${entry}")" != "$(yq -o=json "${entry}" "${wf}")" ]; then
+              echo "build=true" >> "$GITHUB_OUTPUT"
+              echo "==> ${NAME} matrix entry changed, building"
+              exit 0
+            fi
+            echo "==> ${wf} changed, but not for ${NAME}"
+          fi
+
+          echo "build=false" >> "$GITHUB_OUTPUT"
+          echo "==> nothing affecting ${NAME} changed, skipping"
 
       # Dropping a version from `versions` is only safe once no database still
       # records it in pg_extension, which nothing in this repo can see. So a
