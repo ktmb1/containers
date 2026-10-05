@@ -33,7 +33,7 @@ RUN pip install --no-cache-dir \
     "requests==2.34.2" \
     "pyyaml==6.0.3" \
     "aiofiles==25.1.0" \
-    "aiohttp==3.14.3" \
+    "aiohttp==3.14.4" \
     "aiomqtt==2.5.1" \
     "Jinja2==3.1.6" \
     "ruamel.yaml==0.19.1" \
