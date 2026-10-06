@@ -7,7 +7,7 @@
 #
 # The image is deliberately serve-only: it answers NTP for LAN devices and never
 # touches a clock. See the ENTRYPOINT note on -x.
-FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 
 # The exact Debian package version, passed from the build matrix so Renovate's
 # `deb` datasource has a single place to bump. Pinning it means the published
