@@ -66,6 +66,21 @@
       automerge: false,
       dependencyDashboardApproval: true,
     },
+    {
+      // woolworths-mcp/package.json is upstream's file, byte for byte: the
+      // Dockerfile cmp's it against the package.json at the pinned commit and
+      // fails the build on any difference. So Renovate must never edit it -
+      // a range bump or a pin would produce a PR that can only ever fail.
+      //
+      // What moves those dependencies instead: the upstream commit (which
+      // brings upstream's own package.json), and lockFileMaintenance, which
+      // rewrites only package-lock.json within upstream's ranges. That is
+      // not matched here and so keeps running - it is how the MCP SDK and
+      // Puppeteer get patch releases between upstream commits.
+      matchFileNames: ["woolworths-mcp/package.json"],
+      matchUpdateTypes: ["major", "minor", "patch", "pin", "pinDigest", "digest", "rollback", "bump", "replacement"],
+      enabled: false,
+    },
     // Deliberately NO groupName for ghcr.io/cloudnative-pg/postgresql. The two
     // references - the `operand:` matrix entry in build.yaml and
     // `ARG PG_OPERAND_IMAGE` in the extension Dockerfile - already share a

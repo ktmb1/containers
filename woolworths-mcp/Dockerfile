@@ -54,7 +54,16 @@ FROM node:22-trixie-slim@sha256:154ba2f4d6fec323d28e4f4bb86bba4677f1223391a1979c
 # datasource (see .renovaterc.json5).
 ARG SUPERGATEWAY_VERSION=4.1.0
 
-# chromium from Debian rather than Puppeteer's download - see above. The font
+# chromium from Debian rather than Puppeteer's download - see above.
+#
+# Deliberately NOT version-pinned, unlike chrony. Chromium in trixie moves to
+# a new upstream major through trixie-security every few weeks, each one a
+# security release; a pin would turn every one into a PR that has to land
+# before the browser is patched. Unpinned, the weekly rebuild takes it, and
+# home-ops sees the rebuild as a digest update of the same tag - still a
+# reviewable PR there, just not a second one here.
+#
+# The font
 # package is what keeps product pages from rendering as tofu, which matters
 # only in that Chrome lays out text it then measures; without any font Chrome
 # still starts.
