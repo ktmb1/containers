@@ -4,7 +4,7 @@
 # Upstream publishes no image, speaks stdio only, and ships no lockfile. So
 # this builds a pinned commit with a lockfile generated here (package-lock.json
 # next to this file), and puts supergateway in front to turn stdio into HTTP.
-FROM node:22-trixie-slim@sha256:154ba2f4d6fec323d28e4f4bb86bba4677f1223391a1979cf521304e03a98dfa AS build
+FROM node:24-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66 AS build
 
 # Upstream has no releases or tags - this is the head of main. A commit, not a
 # branch, so the image's contents are a property of this file and not of when
@@ -48,7 +48,7 @@ RUN grep -qxF '  const headless = args.headless ?? false;' src/index.ts \
 
 RUN npm run build && npm prune --omit=dev
 
-FROM node:22-trixie-slim@sha256:154ba2f4d6fec323d28e4f4bb86bba4677f1223391a1979cf521304e03a98dfa
+FROM node:24-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66
 
 # The stdio-to-HTTP bridge. Pinned; Renovate tracks it through the npm
 # datasource (see .renovaterc.json5).
