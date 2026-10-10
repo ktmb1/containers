@@ -228,6 +228,36 @@
       matchStrings: ["\"(?<depName>[a-zA-Z0-9_.-]+)==(?<currentValue>[^\"]+)\""],
       datasourceTemplate: "pypi",
     },
+    {
+      customType: "regex",
+      description: "Woolworths-mcp commit in the build matrix",
+      managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
+      // Upstream has no releases, so this follows main by commit. Anchored on
+      // the entry's own name like the predbat manager above.
+      matchStrings: ["name: woolworths-mcp(?:.|\\n)*?version:\\s*\"(?<currentDigest>[a-f0-9]{40})\""],
+      depNameTemplate: "woolworths-mcp",
+      packageNameTemplate: "https://github.com/elijah-g/Woolworths-mcp",
+      currentValueTemplate: "main",
+      datasourceTemplate: "git-refs",
+    },
+    {
+      customType: "regex",
+      description: "Woolworths-mcp commit pinned in its Dockerfile",
+      managerFilePatterns: ["/^woolworths-mcp/Dockerfile$/"],
+      matchStrings: ["ARG WOOLWORTHS_MCP_REF=(?<currentDigest>[a-f0-9]{40})"],
+      depNameTemplate: "woolworths-mcp",
+      packageNameTemplate: "https://github.com/elijah-g/Woolworths-mcp",
+      currentValueTemplate: "main",
+      datasourceTemplate: "git-refs",
+    },
+    {
+      customType: "regex",
+      description: "supergateway version pinned in the woolworths-mcp Dockerfile",
+      managerFilePatterns: ["/^woolworths-mcp/Dockerfile$/"],
+      matchStrings: ["ARG SUPERGATEWAY_VERSION=(?<currentValue>\\S+)"],
+      depNameTemplate: "supergateway",
+      datasourceTemplate: "npm",
+    },
     // Deliberately NO custom manager for timescaledb-extension/Dockerfile's
     // `ARG PG_OPERAND_IMAGE=...`. The built-in dockerfile manager already
     // extracts that line: `FROM ${PG_OPERAND_IMAGE}` makes Renovate resolve

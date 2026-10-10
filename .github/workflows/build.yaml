@@ -123,6 +123,14 @@ jobs:
             # into the config volume at first boot, so the running version is a
             # property of the image and not of when the volume was created.
             version: "v9.3.7"
+
+          - name: woolworths-mcp
+            context: woolworths-mcp
+            # Upstream (elijah-g/Woolworths-mcp) has no releases or tags, so
+            # the version is the commit, and so is the published tag. Keep it
+            # identical to ARG WOOLWORTHS_MCP_REF in the Dockerfile; Renovate
+            # moves both.
+            version: "04ca8549627c6455692dee811a786189a1593076"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -293,6 +301,7 @@ jobs:
             POSTGIS_VERSION=${{ matrix.version }}
             CHRONY_VERSION=${{ matrix.version }}
             PREDBAT_VERSION=${{ matrix.version }}
+            WOOLWORTHS_MCP_REF=${{ matrix.version }}
           tags: ${{ matrix.name }}:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -402,6 +411,14 @@ jobs:
         if: ${{ matrix.name == 'predbat' && steps.changed.outputs.build == 'true' }}
         run: ./predbat/verify.sh ${{ matrix.name }}:ci
 
+      # Everything this image adds to upstream is invisible in a build: the
+      # stdio bridge, stateful sessions, the headless patch, Debian's chromium
+      # standing in for Puppeteer's. Each fails at the first tool call, not at
+      # build time - so make one.
+      - name: Verify woolworths-mcp serves MCP and launches Chromium
+        if: ${{ matrix.name == 'woolworths-mcp' && steps.changed.outputs.build == 'true' }}
+        run: ./woolworths-mcp/verify.sh ${{ matrix.name }}:ci
+
       # The tag suffix differs by image: the extension is keyed to a Postgres
       # major (the .so is only loadable in that one), while chrony is keyed to
       # its own version alone.
@@ -454,5 +471,6 @@ jobs:
             POSTGIS_VERSION=${{ matrix.version }}
             CHRONY_VERSION=${{ matrix.version }}
             PREDBAT_VERSION=${{ matrix.version }}
+            WOOLWORTHS_MCP_REF=${{ matrix.version }}
           tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha
