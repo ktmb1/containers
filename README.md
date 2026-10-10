@@ -16,6 +16,7 @@ Two kinds of build live here:
 | `postgis-extension`     | pgdg package, repackaged            | PostGIS as a CloudNativePG extension image volume     |
 | `chrony`                | this repo (`Dockerfile`)            | Serve-only NTP server for the LAN                     |
 | `predbat`               | this repo (`Dockerfile`)            | Home battery prediction and control, off the Supervisor |
+| `woolworths-mcp`        | this repo (`Dockerfile`)            | Woolworths MCP server over HTTP, for the MCP gateway  |
 | `aiolists`              | `amasolov/AIOLists` (`deploy`)      | AIOLists Stremio addon, from our fork                 |
 | `stremio-web`           | `Stremio/stremio-web` (release tag) | Stremio web UI                                        |
 
@@ -293,6 +294,54 @@ bytes land — including across a forced rotation, which is the case that
 separates a working redirect from one that has quietly reverted to the PVC. A
 build alone cannot show this: a broken redirect produces an image that starts
 perfectly and writes 100MiB onto the volume it was meant to keep clean.
+
+## woolworths-mcp
+
+[elijah-g/Woolworths-mcp](https://github.com/elijah-g/Woolworths-mcp) - product
+search, prices and specials from Woolworths Australia - as a gateway backend
+for the `mcp` namespace in `ktmb1/home-ops`.
+
+Upstream is a desktop stdio server: no image, no releases, no lockfile, and a
+Puppeteer browser that opens *visibly* by default so a person can log in. This
+image is what it takes to run that in a pod:
+
+**supergateway turns stdio into Streamable HTTP, in `--stateful` mode.** The
+server keeps its browser and the cookies `woolworths_get_cookies` captured in
+process memory. Stateless mode would start a fresh child per request and lose
+them between calls; stateful gives each MCP session its own child (and its own
+Chromium), reaped after 30 idle minutes.
+
+**Headless is forced by a build-time patch.** Upstream's
+`woolworths_open_browser` defaults to `headless: false` and lets the caller
+choose; in a pod that dies with `Missing X server or $DISPLAY`. The Dockerfile
+asserts the exact line before and after the `sed`, so an upstream rewording
+fails the build rather than shipping an image that crashes on first use.
+
+**Debian's `chromium`, not Puppeteer's download.** Puppeteer 23 would fetch
+Chrome 131 from late 2024 and keep it forever; Debian's package gets security
+updates, which matters for a browser that loads a public website.
+
+**The lockfile is ours.** Upstream's dependencies are all `^` ranges with no
+lockfile. `package-lock.json` here was generated from upstream's own
+`package.json`; the build `cmp`s the two, so a commit bump that changes
+upstream's dependencies fails until the lockfile is regenerated:
+
+```bash
+cd woolworths-mcp
+curl -fsSL https://raw.githubusercontent.com/elijah-g/Woolworths-mcp/<commit>/package.json -o package.json
+PUPPETEER_SKIP_DOWNLOAD=1 npm install --package-lock-only --ignore-scripts
+```
+
+Upstream has no tags, so the version - and the published tag - is the commit.
+Renovate follows `main` through the `git-refs` datasource and moves the matrix
+entry and the Dockerfile `ARG` together.
+
+`verify.sh` runs the image as the pod does (non-root, read-only root, `/tmp`
+writable), opens an MCP session, checks the tools home-ops allow-lists are
+still there, and calls `woolworths_open_browser` with `headless: false` to
+prove Chromium launches regardless. Whether woolworths.com.au then loads from a
+CI runner is not asserted - that is the runner's network and Woolworths' bot
+protection, not the image.
 
 ## aiolists
 

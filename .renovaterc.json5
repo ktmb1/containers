@@ -66,6 +66,21 @@
       automerge: false,
       dependencyDashboardApproval: true,
     },
+    {
+      // woolworths-mcp/package.json is upstream's file, byte for byte: the
+      // Dockerfile cmp's it against the package.json at the pinned commit and
+      // fails the build on any difference. So Renovate must never edit it -
+      // a range bump or a pin would produce a PR that can only ever fail.
+      //
+      // What moves those dependencies instead: the upstream commit (which
+      // brings upstream's own package.json), and lockFileMaintenance, which
+      // rewrites only package-lock.json within upstream's ranges. That is
+      // not matched here and so keeps running - it is how the MCP SDK and
+      // Puppeteer get patch releases between upstream commits.
+      matchFileNames: ["woolworths-mcp/package.json"],
+      matchUpdateTypes: ["major", "minor", "patch", "pin", "pinDigest", "digest", "rollback", "bump", "replacement"],
+      enabled: false,
+    },
     // Deliberately NO groupName for ghcr.io/cloudnative-pg/postgresql. The two
     // references - the `operand:` matrix entry in build.yaml and
     // `ARG PG_OPERAND_IMAGE` in the extension Dockerfile - already share a
@@ -227,6 +242,36 @@
       // versions are pinned in the Dockerfile instead and tracked here.
       matchStrings: ["\"(?<depName>[a-zA-Z0-9_.-]+)==(?<currentValue>[^\"]+)\""],
       datasourceTemplate: "pypi",
+    },
+    {
+      customType: "regex",
+      description: "Woolworths-mcp commit in the build matrix",
+      managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
+      // Upstream has no releases, so this follows main by commit. Anchored on
+      // the entry's own name like the predbat manager above.
+      matchStrings: ["name: woolworths-mcp(?:.|\\n)*?version:\\s*\"(?<currentDigest>[a-f0-9]{40})\""],
+      depNameTemplate: "woolworths-mcp",
+      packageNameTemplate: "https://github.com/elijah-g/Woolworths-mcp",
+      currentValueTemplate: "main",
+      datasourceTemplate: "git-refs",
+    },
+    {
+      customType: "regex",
+      description: "Woolworths-mcp commit pinned in its Dockerfile",
+      managerFilePatterns: ["/^woolworths-mcp/Dockerfile$/"],
+      matchStrings: ["ARG WOOLWORTHS_MCP_REF=(?<currentDigest>[a-f0-9]{40})"],
+      depNameTemplate: "woolworths-mcp",
+      packageNameTemplate: "https://github.com/elijah-g/Woolworths-mcp",
+      currentValueTemplate: "main",
+      datasourceTemplate: "git-refs",
+    },
+    {
+      customType: "regex",
+      description: "supergateway version pinned in the woolworths-mcp Dockerfile",
+      managerFilePatterns: ["/^woolworths-mcp/Dockerfile$/"],
+      matchStrings: ["ARG SUPERGATEWAY_VERSION=(?<currentValue>\\S+)"],
+      depNameTemplate: "supergateway",
+      datasourceTemplate: "npm",
     },
     // Deliberately NO custom manager for timescaledb-extension/Dockerfile's
     // `ARG PG_OPERAND_IMAGE=...`. The built-in dockerfile manager already
