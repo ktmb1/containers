@@ -2,26 +2,24 @@
 # Verify a built woolworths-mcp image serves MCP over HTTP and can launch its
 # browser.
 #
-# Nothing this image adds to the source shows up in a build. Each part fails
-# only at runtime, and only on the first tool call:
-#   - supergateway in front of the stdio server (a wrong --stdio command still
-#     serves /healthz happily)
-#   - --stateful (without it every request gets a fresh child, and the cookies
-#     woolworths_get_cookies captured are gone by the next call)
-#   - a headless browser (amasolov/woolworths-mcp defaults to one unless
-#     WOOLWORTHS_HEADLESS=false; a visible launch dies with "Missing X server")
+# What this image adds to the source shows up only at runtime, on the first
+# tool call:
+#   - the HTTP transport (MCP_TRANSPORT=http; without it the server would
+#     wait on stdio and never listen)
 #   - Debian's chromium in place of Puppeteer's download (a wrong
 #     PUPPETEER_EXECUTABLE_PATH fails with "Could not find Chrome")
+#   - a headless launch under a read-only root with /tmp as the only writable
+#     path ("Missing X server", or a profile directory it cannot create)
 #
 # So this starts the image the way the pod runs it - non-root, read-only root
-# filesystem, /tmp as the only writable path - opens an MCP session, and calls
-# woolworths_open_browser. It passes headless: false, which the old upstream
-# honoured; the server must ignore it.
+# filesystem, /tmp as the only writable path - and calls
+# woolworths_search_products. There is no setup call any more: the server
+# launches Chromium for its cookies on that first call.
 #
-# Whether woolworths.com.au then loads is not asserted. That depends on the
+# Whether woolworths.com.au then answers is not asserted. That depends on the
 # runner's network and on Woolworths' bot protection, neither of which this
 # image controls. What is asserted is that Chromium launched: the call either
-# succeeds or fails on navigation, never on launch.
+# returns products or fails on navigation or the API, never on launch.
 #
 # Usage: verify.sh <image>
 set -euo pipefail
@@ -63,12 +61,10 @@ mcp() {
     curl -fsS -m "${2:-30}" -D "${headers}" \
         -H "Content-Type: application/json" \
         -H "Accept: application/json, text/event-stream" \
-        ${session:+-H "mcp-session-id: ${session}"} \
         "${url}/mcp" -d "$1"
 }
 
 echo "==> initialize"
-session=""
 init="$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"verify","version":"1"}}}')"
 if ! grep -q '"woolworths-mcp-server"' <<<"${init}"; then
     echo "ERROR: initialize did not reach the Woolworths server:" >&2
@@ -76,55 +72,53 @@ if ! grep -q '"woolworths-mcp-server"' <<<"${init}"; then
     docker logs "${name}" >&2
     exit 1
 fi
-# Stateful mode hands out a session id; stateless does not. Its absence means
-# --stateful is gone and the cookie flow cannot work.
-session="$(grep -i '^mcp-session-id:' "${headers}" | awk '{print $2}' | tr -d '\r')"
-if [ -z "${session}" ]; then
-    echo "ERROR: no mcp-session-id header - supergateway is not in stateful mode." >&2
+# Stateless on purpose: a session id would be one a restarted pod no longer
+# knows, and every client holding it would get 404s until it reconnected.
+if grep -qi '^mcp-session-id:' "${headers}"; then
+    echo "ERROR: the server issued an mcp-session-id - it is meant to be stateless." >&2
     exit 1
 fi
-echo "    session ${session}"
-mcp '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null || true
 
 echo "==> tools/list"
 tools="$(mcp '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')"
 # The tools home-ops' MCPRoute allow-lists. If a release renames one, the
 # gateway would silently stop offering it.
-for tool in woolworths_open_browser woolworths_get_cookies woolworths_close_browser \
-    woolworths_search_products woolworths_get_product_details \
-    woolworths_get_specials woolworths_get_categories; do
+for tool in woolworths_search_products woolworths_get_product_details \
+    woolworths_find_healthier woolworths_get_specials woolworths_get_categories; do
     if ! grep -q "\"${tool}\"" <<<"${tools}"; then
         echo "ERROR: ${tool} is missing from tools/list." >&2
         echo "${tools}" >&2
         exit 1
     fi
 done
-echo "    all allow-listed tools present"
+# The cart tools change state and are off unless WOOLWORTHS_ENABLE_CART=true.
+if grep -q '"woolworths_add_to_cart"' <<<"${tools}"; then
+    echo "ERROR: cart tools are listed; they should be off by default." >&2
+    exit 1
+fi
+echo "    all allow-listed tools present, no cart tools"
 
-echo "==> woolworths_open_browser (asking for headless: false)"
-result="$(mcp '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"woolworths_open_browser","arguments":{"headless":false}}}' 120)"
+echo "==> woolworths_search_products (launches Chromium for cookies)"
+result="$(mcp '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"woolworths_search_products","arguments":{"searchTerm":"milk","pageSize":2}}}' 120)"
 echo "    ${result}" | head -c 600
 echo
-for launch_failure in "Missing X server" "Could not find Chrome" "Failed to launch" "No usable sandbox"; do
+for launch_failure in "Missing X server" "Could not find Chrome" "Failed to launch" "No usable sandbox" "EROFS"; do
     if grep -q "${launch_failure}" <<<"${result}"; then
         echo "ERROR: Chromium did not launch (${launch_failure})." >&2
         docker logs "${name}" >&2
         exit 1
     fi
 done
-# The result is JSON inside a JSON string, so its quotes arrive escaped.
-# Successful results are compact and errors pretty-printed: the space is
-# optional.
-if ! grep -qE '\\"success\\": ?(true|false)' <<<"${result}"; then
-    echo "ERROR: woolworths_open_browser returned no tool result." >&2
+if ! grep -q '"content"' <<<"${result}"; then
+    echo "ERROR: woolworths_search_products returned no tool result." >&2
     docker logs "${name}" >&2
     exit 1
 fi
-if ! docker exec "${name}" sh -c 'ls /proc/*/cmdline | xargs -r cat 2>/dev/null | tr "\0" " "' | grep -q -- "--headless"; then
-    echo "ERROR: no headless Chromium process in the container." >&2
-    exit 1
+if grep -q '\\"products\\"' <<<"${result}"; then
+    echo "    products returned"
+else
+    echo "    no products (Woolworths unreachable or refused from this runner) - not asserted"
 fi
-echo "    Chromium launched headless"
 
 user="$(docker exec "${name}" id -u)"
 if [ "${user}" = "0" ]; then

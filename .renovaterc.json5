@@ -249,14 +249,6 @@
       datasourceTemplate: "github-releases",
       extractVersionTemplate: "^v(?<version>.+)$",
     },
-    {
-      customType: "regex",
-      description: "supergateway version pinned in the woolworths-mcp Dockerfile",
-      managerFilePatterns: ["/^woolworths-mcp/Dockerfile$/"],
-      matchStrings: ["ARG SUPERGATEWAY_VERSION=(?<currentValue>\\S+)"],
-      depNameTemplate: "supergateway",
-      datasourceTemplate: "npm",
-    },
     // Deliberately NO custom manager for timescaledb-extension/Dockerfile's
     // `ARG PG_OPERAND_IMAGE=...`. The built-in dockerfile manager already
     // extracts that line: `FROM ${PG_OPERAND_IMAGE}` makes Renovate resolve

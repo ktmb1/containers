@@ -2,15 +2,15 @@
 # elijah-g/Woolworths-mcp), served over Streamable HTTP for the ktmb1/home-ops
 # MCP gateway.
 #
-# The server speaks stdio only, so supergateway goes in front to turn it into
-# HTTP. Everything else - headless by default, the lockfile - lives in the
-# source repo now.
+# The server speaks Streamable HTTP itself (MCP_TRANSPORT=http) and gets its
+# own Woolworths cookies, so this image only adds Debian's chromium and the
+# settings to run it non-root on a read-only root filesystem.
 FROM node:24-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66 AS build
 
 # A release tag of amasolov/woolworths-mcp, without its leading "v". Renovate
 # moves it, and the build matrix's `version`, through the github-releases
 # datasource.
-ARG WOOLWORTHS_MCP_VERSION=1.1.0
+ARG WOOLWORTHS_MCP_VERSION=1.2.0
 
 # hadolint ignore=DL3008
 RUN set -eux; \
@@ -36,10 +36,6 @@ RUN npm run build && npm prune --omit=dev
 
 FROM node:24-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66
 
-# The stdio-to-HTTP bridge. Pinned; Renovate tracks it through the npm
-# datasource (see .renovaterc.json5).
-ARG SUPERGATEWAY_VERSION=4.1.0
-
 # chromium from Debian rather than Puppeteer's download - see above.
 #
 # Deliberately NOT version-pinned, unlike chrony. Chromium in trixie moves to
@@ -54,13 +50,11 @@ ARG SUPERGATEWAY_VERSION=4.1.0
 # only in that Chrome lays out text it then measures; without any font Chrome
 # still starts.
 #
-# hadolint ignore=DL3008,DL3016
+# hadolint ignore=DL3008
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends chromium fonts-liberation ca-certificates; \
-    rm -rf /var/lib/apt/lists/*; \
-    npm install -g --no-audit --no-fund "supergateway@${SUPERGATEWAY_VERSION}"; \
-    npm cache clean --force
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /src/dist /app/dist
 COPY --from=build /src/node_modules /app/node_modules
@@ -72,7 +66,9 @@ COPY --from=build /src/package.json /app/package.json
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
     PUPPETEER_SKIP_DOWNLOAD=1 \
     HOME=/tmp \
-    NODE_ENV=production
+    NODE_ENV=production \
+    MCP_TRANSPORT=http \
+    PORT=8000
 
 WORKDIR /app
 
@@ -81,17 +77,8 @@ USER node
 
 EXPOSE 8000
 
-# --stateful: the server keeps the browser and the captured cookies in the
-# process, so every request of one MCP session must reach the same child
-# process. Stateless mode starts a fresh child per request - the cookies from
-# woolworths_get_cookies would be gone by the next call.
-#
-# Each session therefore gets its own child and its own Chromium; the session
-# timeout reaps both after 30 idle minutes.
-ENTRYPOINT ["supergateway", \
-    "--stdio", "node /app/dist/index.js", \
-    "--outputTransport", "streamableHttp", \
-    "--stateful", \
-    "--sessionTimeout", "1800000", \
-    "--port", "8000", \
-    "--healthEndpoint", "/healthz"]
+# Stateless Streamable HTTP on /mcp, /healthz for the probes. The server
+# launches Chromium only to collect cookies - on the first tool call and when
+# Woolworths starts refusing them - and closes it again, so one pod holds at
+# most one browser, briefly.
+ENTRYPOINT ["node", "/app/dist/index.js"]
