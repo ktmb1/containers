@@ -10,7 +10,7 @@ FROM node:24-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f
 # A release tag of amasolov/woolworths-mcp, without its leading "v". Renovate
 # moves it, and the build matrix's `version`, through the github-releases
 # datasource.
-ARG WOOLWORTHS_MCP_VERSION=1.2.1
+ARG WOOLWORTHS_MCP_VERSION=1.3.0
 
 # hadolint ignore=DL3008
 RUN set -eux; \
