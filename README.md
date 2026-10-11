@@ -304,14 +304,11 @@ for the `mcp` namespace in `ktmb1/home-ops`. It continues
 dormant, with its history: slim product responses, a headless browser by
 default, a committed lockfile, and tagged releases.
 
-The source is a desktop stdio server, so this image is what it takes to run it
-in a pod:
-
-**supergateway turns stdio into Streamable HTTP, in `--stateful` mode.** The
-server keeps its browser and the cookies `woolworths_get_cookies` captured in
-process memory. Stateless mode would start a fresh child per request and lose
-them between calls; stateful gives each MCP session its own child (and its own
-Chromium), reaped after 30 idle minutes.
+The server serves stateless Streamable HTTP itself (`MCP_TRANSPORT=http`) and
+fetches its own Woolworths cookies: the first tool call launches headless
+Chromium, captures them and closes it, and a 403 later refreshes them. No
+session id is issued, so a pod restart does not strand clients. This image
+adds:
 
 **Debian's `chromium`, not Puppeteer's download.** Puppeteer 23 would fetch
 Chrome 131 from late 2024 and keep it forever; Debian's package gets security
@@ -326,11 +323,11 @@ Dockerfile `ARG` together. Dependency updates (MCP SDK, Puppeteer) happen in
 the source repo, and arrive here as a new release.
 
 `verify.sh` runs the image as the pod does (non-root, read-only root, `/tmp`
-writable), opens an MCP session, checks the tools home-ops allow-lists are
-still there, and calls `woolworths_open_browser` with `headless: false` to
-prove Chromium launches headless regardless. Whether woolworths.com.au then
-loads from a CI runner is not asserted - that is the runner's network and
-Woolworths' bot protection, not the image.
+writable), checks the server is stateless, that the tools home-ops allow-lists
+are there and the cart tools are not, and calls `woolworths_search_products`
+to prove Chromium launches. Whether woolworths.com.au then answers from a CI
+runner is not asserted - that is the runner's network and Woolworths' bot
+protection, not the image.
 
 ## aiolists
 
