@@ -2,20 +2,21 @@
 # Verify a built woolworths-mcp image serves MCP over HTTP and can launch its
 # browser.
 #
-# Nothing this image adds to upstream shows up in a build. Each part fails only
-# at runtime, and only on the first tool call:
+# Nothing this image adds to the source shows up in a build. Each part fails
+# only at runtime, and only on the first tool call:
 #   - supergateway in front of the stdio server (a wrong --stdio command still
 #     serves /healthz happily)
 #   - --stateful (without it every request gets a fresh child, and the cookies
 #     woolworths_get_cookies captured are gone by the next call)
-#   - the forced-headless patch (unpatched, woolworths_open_browser with no
-#     arguments dies with "Missing X server")
+#   - a headless browser (amasolov/woolworths-mcp defaults to one unless
+#     WOOLWORTHS_HEADLESS=false; a visible launch dies with "Missing X server")
 #   - Debian's chromium in place of Puppeteer's download (a wrong
 #     PUPPETEER_EXECUTABLE_PATH fails with "Could not find Chrome")
 #
 # So this starts the image the way the pod runs it - non-root, read-only root
 # filesystem, /tmp as the only writable path - opens an MCP session, and calls
-# woolworths_open_browser asking for a VISIBLE browser.
+# woolworths_open_browser. It passes headless: false, which the old upstream
+# honoured; the server must ignore it.
 #
 # Whether woolworths.com.au then loads is not asserted. That depends on the
 # runner's network and on Woolworths' bot protection, neither of which this
@@ -87,7 +88,7 @@ mcp '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null || true
 
 echo "==> tools/list"
 tools="$(mcp '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')"
-# The tools home-ops' MCPRoute allow-lists. If upstream renames one, the
+# The tools home-ops' MCPRoute allow-lists. If a release renames one, the
 # gateway would silently stop offering it.
 for tool in woolworths_open_browser woolworths_get_cookies woolworths_close_browser \
     woolworths_search_products woolworths_get_product_details \
@@ -111,7 +112,10 @@ for launch_failure in "Missing X server" "Could not find Chrome" "Failed to laun
         exit 1
     fi
 done
-if ! grep -qE '\\"success\\": (true|false)' <<<"${result}"; then
+# The result is JSON inside a JSON string, so its quotes arrive escaped.
+# Successful results are compact and errors pretty-printed: the space is
+# optional.
+if ! grep -qE '\\"success\\": ?(true|false)' <<<"${result}"; then
     echo "ERROR: woolworths_open_browser returned no tool result." >&2
     docker logs "${name}" >&2
     exit 1

@@ -126,11 +126,10 @@ jobs:
 
           - name: woolworths-mcp
             context: woolworths-mcp
-            # Upstream (elijah-g/Woolworths-mcp) has no releases or tags, so
-            # the version is the commit, and so is the published tag. Keep it
-            # identical to ARG WOOLWORTHS_MCP_REF in the Dockerfile; Renovate
-            # moves both.
-            version: "04ca8549627c6455692dee811a786189a1593076"
+            # A release of amasolov/woolworths-mcp (tag v1.1.0 -> "1.1.0"), and
+            # the published tag. Keep it identical to ARG
+            # WOOLWORTHS_MCP_VERSION in the Dockerfile; Renovate moves both.
+            version: "1.1.0"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -301,7 +300,7 @@ jobs:
             POSTGIS_VERSION=${{ matrix.version }}
             CHRONY_VERSION=${{ matrix.version }}
             PREDBAT_VERSION=${{ matrix.version }}
-            WOOLWORTHS_MCP_REF=${{ matrix.version }}
+            WOOLWORTHS_MCP_VERSION=${{ matrix.version }}
           tags: ${{ matrix.name }}:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -411,9 +410,10 @@ jobs:
         if: ${{ matrix.name == 'predbat' && steps.changed.outputs.build == 'true' }}
         run: ./predbat/verify.sh ${{ matrix.name }}:ci
 
-      # Everything this image adds to upstream is invisible in a build: the
-      # stdio bridge, stateful sessions, the headless patch, Debian's chromium
-      # standing in for Puppeteer's. Each fails at the first tool call, not at
+      # Everything this image adds to the source is invisible in a build: the
+      # stdio bridge, stateful sessions, Debian's chromium standing in for
+      # Puppeteer's - and the source's headless default is only worth anything
+      # if it holds in the pod. Each fails at the first tool call, not at
       # build time - so make one.
       - name: Verify woolworths-mcp serves MCP and launches Chromium
         if: ${{ matrix.name == 'woolworths-mcp' && steps.changed.outputs.build == 'true' }}
@@ -471,6 +471,6 @@ jobs:
             POSTGIS_VERSION=${{ matrix.version }}
             CHRONY_VERSION=${{ matrix.version }}
             PREDBAT_VERSION=${{ matrix.version }}
-            WOOLWORTHS_MCP_REF=${{ matrix.version }}
+            WOOLWORTHS_MCP_VERSION=${{ matrix.version }}
           tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha

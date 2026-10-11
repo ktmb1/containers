@@ -1,50 +1,36 @@
-# Woolworths MCP server (elijah-g/Woolworths-mcp), served over Streamable
-# HTTP for the ktmb1/home-ops MCP gateway.
+# Woolworths MCP server (amasolov/woolworths-mcp, a continuation of
+# elijah-g/Woolworths-mcp), served over Streamable HTTP for the ktmb1/home-ops
+# MCP gateway.
 #
-# Upstream publishes no image, speaks stdio only, and ships no lockfile. So
-# this builds a pinned commit with a lockfile generated here (package-lock.json
-# next to this file), and puts supergateway in front to turn stdio into HTTP.
+# The server speaks stdio only, so supergateway goes in front to turn it into
+# HTTP. Everything else - headless by default, the lockfile - lives in the
+# source repo now.
 FROM node:24-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66 AS build
 
-# Upstream has no releases or tags - this is the head of main. A commit, not a
-# branch, so the image's contents are a property of this file and not of when
-# it was built.
-ARG WOOLWORTHS_MCP_REF=04ca8549627c6455692dee811a786189a1593076
+# A release tag of amasolov/woolworths-mcp, without its leading "v". Renovate
+# moves it, and the build matrix's `version`, through the github-releases
+# datasource.
+ARG WOOLWORTHS_MCP_VERSION=1.1.0
 
 # hadolint ignore=DL3008
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates; \
     mkdir -p /src; \
-    curl -fsSL "https://codeload.github.com/elijah-g/Woolworths-mcp/tar.gz/${WOOLWORTHS_MCP_REF}" \
+    curl -fsSL "https://codeload.github.com/amasolov/woolworths-mcp/tar.gz/refs/tags/v${WOOLWORTHS_MCP_VERSION}" \
     | tar -xz --strip-components=1 -C /src; \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 
-# Upstream's package.json is all caret ranges with no lockfile, so two builds a
-# week apart could ship different MCP SDKs. The lockfile here was generated
-# from upstream's own package.json and is what `npm ci` installs; the cmp
-# fails the build if upstream's package.json moves at a ref bump and the
-# lockfile was not regenerated with it.
-COPY package.json package-lock.json /tmp/lock/
-RUN cmp /tmp/lock/package.json package.json && cp /tmp/lock/package-lock.json .
-
 # Puppeteer's postinstall would download its own Chrome (131, from 2024, never
 # patched). Skipped: the runtime image uses Debian's chromium instead, which
 # Debian security updates - this is a browser that loads a public website.
+#
+# npm ci fails if the repo's package-lock.json is missing or out of step with
+# its package.json, so what is installed is exactly what that tag locked.
 ENV PUPPETEER_SKIP_DOWNLOAD=1
 RUN npm ci --no-audit --no-fund
-
-# Force headless. Upstream defaults woolworths_open_browser to a VISIBLE
-# browser, so a human can log in by hand, and lets the caller choose. There is
-# no display in a pod: a non-headless launch dies with "Missing X server", and
-# the default is exactly what an LLM calling the tool with no arguments gets.
-# The grep fails the build if upstream reworded the line and the patch no
-# longer applies, rather than shipping an image that crashes on first use.
-RUN grep -qxF '  const headless = args.headless ?? false;' src/index.ts \
-    && sed -i 's/^  const headless = args.headless ?? false;$/  const headless = true;/' src/index.ts \
-    && grep -qxF '  const headless = true;' src/index.ts
 
 RUN npm run build && npm prune --omit=dev
 
