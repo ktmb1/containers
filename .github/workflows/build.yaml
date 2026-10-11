@@ -126,10 +126,10 @@ jobs:
 
           - name: woolworths-mcp
             context: woolworths-mcp
-            # A release of amasolov/woolworths-mcp (tag v1.2.0 -> "1.2.0"), and
+            # A release of amasolov/woolworths-mcp (tag v1.2.1 -> "1.2.1"), and
             # the published tag. Keep it identical to ARG
             # WOOLWORTHS_MCP_VERSION in the Dockerfile; Renovate moves both.
-            version: "1.2.0"
+            version: "1.2.1"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
