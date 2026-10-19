@@ -82,7 +82,7 @@ jobs:
             # in it before anything is pushed. Keep it identical to the
             # Cluster.spec.imageName the cluster runs, or the published image
             # can fail to load there while the build stays green.
-            operand: "ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie@sha256:c7747d8d1049fff9cf30d9cd83d14d609c957afb5ffbcd114145f393ea1850e1"
+            operand: "ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie@sha256:d72ace96f5803b12c341bb5dac48532e8c1f92f69e8a717a59d779bfc038dea9"
 
           - name: postgis-extension
             context: postgis-extension
@@ -100,7 +100,7 @@ jobs:
             # Same rule as timescaledb-extension: keep this identical to the
             # Cluster.spec.imageName the cluster runs. The bundled libraries are
             # resolved against this operand's linker.
-            operand: "ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie@sha256:c7747d8d1049fff9cf30d9cd83d14d609c957afb5ffbcd114145f393ea1850e1"
+            operand: "ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie@sha256:d72ace96f5803b12c341bb5dac48532e8c1f92f69e8a717a59d779bfc038dea9"
 
           - name: chrony
             context: chrony
