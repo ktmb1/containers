@@ -75,8 +75,8 @@ jobs:
             # manager rewrites both lines together, appending the new release
             # to the current one, and the "TimescaleDB versions kept" step
             # below fails any PR that drops a version the base branch shipped.
-            version: "2.30.2"
-            versions: "2.30.2"
+            version: "2.31.0"
+            versions: "2.30.2 2.31.0"
             pg_major: "18"
             # The extension is compiled against this image and verified to load
             # in it before anything is pushed. Keep it identical to the
