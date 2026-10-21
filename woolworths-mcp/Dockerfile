@@ -5,7 +5,7 @@
 # The server speaks Streamable HTTP itself (MCP_TRANSPORT=http) and gets its
 # own Woolworths cookies, so this image only adds Debian's chromium and the
 # settings to run it non-root on a read-only root filesystem.
-FROM node:24-trixie-slim@sha256:7f486cabe892bff8fef04c0f7da8dba84a560be3e4e2740b7a86afc57ebec315 AS build
+FROM node:24-trixie-slim@sha256:a6155384446670e9719bdc4fd0ebe4d4b29fb32a8d6aa523da3547a6cfbcf22c AS build
 
 # A release tag of amasolov/woolworths-mcp, without its leading "v". Renovate
 # moves it, and the build matrix's `version`, through the github-releases
@@ -34,7 +34,7 @@ RUN npm ci --no-audit --no-fund
 
 RUN npm run build && npm prune --omit=dev
 
-FROM node:24-trixie-slim@sha256:7f486cabe892bff8fef04c0f7da8dba84a560be3e4e2740b7a86afc57ebec315
+FROM node:24-trixie-slim@sha256:a6155384446670e9719bdc4fd0ebe4d4b29fb32a8d6aa523da3547a6cfbcf22c
 
 # chromium from Debian rather than Puppeteer's download - see above.
 #
