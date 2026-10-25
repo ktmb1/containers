@@ -27,6 +27,14 @@ ARG PREDBAT_VERSION=v9.5.0
 # and Predbat round-trips apps.yaml through it to preserve the comments - which
 # on this deployment carry the entire Powerwall 3 rationale.
 #
+# pvlib is deliberately absent. Predbat does not import it - solar_model.py
+# carries its own copy of the one pvlib formula it uses (the SAPM cell
+# temperature) - and it is not in upstream's requirements.txt. It was pure
+# weight: it drags in pandas, scipy and h5py, and h5py publishes wheels late,
+# so it failed the Python 3.15 base bump trying to compile against an HDF5
+# that is not in the image. Should an upstream release import it again at
+# module level, verify.sh fails on startup before anything ships.
+#
 # hadolint ignore=DL3013
 RUN pip install --no-cache-dir \
     "pytz==2026.5" \
@@ -40,8 +48,7 @@ RUN pip install --no-cache-dir \
     "pyjwt==2.15.1" \
     "numpy==2.5.4" \
     "prometheus-client==0.26.0" \
-    "protobuf==7.36.2" \
-    "pvlib==0.16.1"
+    "protobuf==7.36.2"
 
 # curl for the download, ca-certificates for TLS to GitHub; both are removed
 # again in the same layer so neither ships in the final image.
