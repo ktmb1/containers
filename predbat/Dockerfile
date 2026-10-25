@@ -9,7 +9,7 @@
 # Off the Supervisor, Predbat talks to Home Assistant over the ordinary REST +
 # websocket API using ha_url/ha_key in apps.yaml; SUPERVISOR_TOKEN, which the
 # add-on relies on, simply does not exist here.
-FROM python:3.14-slim-trixie@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8
+FROM python:3.15-slim-trixie@sha256:533b0b2f9b5d46fd097091cf826f27902f1d6c3bca714b6dc74551356aa97a51
 
 # The upstream release tag. Renovate tracks this through the github-releases
 # datasource (see .renovaterc.json5), so a Predbat release opens a PR here.
@@ -35,6 +35,14 @@ ARG PREDBAT_VERSION=v9.5.0
 # back to 0.18.x here and add a packageRule holding it, or Renovate will
 # simply move it forward again.
 #
+# pvlib is deliberately absent. Predbat does not import it - solar_model.py
+# carries its own copy of the one pvlib formula it uses (the SAPM cell
+# temperature) - and it is not in upstream's requirements.txt. It was pure
+# weight: it drags in pandas, scipy and h5py, and h5py publishes wheels late,
+# so it failed the Python 3.15 base bump trying to compile against an HDF5
+# that is not in the image. Should an upstream release import it again at
+# module level, verify.sh fails on startup before anything ships.
+#
 # hadolint ignore=DL3013
 RUN pip install --no-cache-dir \
     "pytz==2026.5" \
@@ -48,8 +56,7 @@ RUN pip install --no-cache-dir \
     "pyjwt==2.15.1" \
     "numpy==2.5.4" \
     "prometheus-client==0.26.0" \
-    "protobuf==7.36.2" \
-    "pvlib==0.16.1"
+    "protobuf==7.36.2"
 
 # curl for the download, ca-certificates for TLS to GitHub; both are removed
 # again in the same layer so neither ships in the final image.
