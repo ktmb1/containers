@@ -21,11 +21,19 @@ ARG PREDBAT_VERSION=v9.5.0
 # bump is a reviewed PR with a build behind it rather than a surprise in the
 # weekly rebuild.
 #
-# numpy holds upstream's own pin (2.3.5) rather than floating to latest, since
-# upstream chose it deliberately and Predbat's numerics are what it pins for.
-# ruamel.yaml keeps the 0.18.x line the add-on shipped: 0.19 is a new major,
-# and Predbat round-trips apps.yaml through it to preserve the comments - which
-# on this deployment carry the entire Powerwall 3 rationale.
+# None of these is held back, upstream's own pin included. Predbat still pins
+# numpy==2.3.5 and the add-on shipped ruamel.yaml 0.18.x, and this file once
+# said both were kept there - but no packageRule ever held them, so Renovate
+# automerged numpy 2.5.x (#18) and ruamel.yaml 0.19 (#19) the day the image
+# was created, and both have shipped since. The build gate behind those merges
+# is narrow: verify.sh proves Predbat starts, not that its plan is numerically
+# unchanged, nor that an edited apps.yaml keeps its comments.
+#
+# ruamel.yaml is the one to watch. Predbat's web config editor round-trips
+# apps.yaml through it to preserve the comments, which on this deployment
+# carry the entire Powerwall 3 rationale. If an edit ever strips them, pin it
+# back to 0.18.x here and add a packageRule holding it, or Renovate will
+# simply move it forward again.
 #
 # hadolint ignore=DL3013
 RUN pip install --no-cache-dir \
