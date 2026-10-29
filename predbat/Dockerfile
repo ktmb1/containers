@@ -13,7 +13,7 @@ FROM python:3.15-slim-trixie@sha256:94d3426f1def7db4a106a232ac121bfd975393e5dfd4
 
 # The upstream release tag. Renovate tracks this through the github-releases
 # datasource (see .renovaterc.json5), so a Predbat release opens a PR here.
-ARG PREDBAT_VERSION=v9.6.2
+ARG PREDBAT_VERSION=v9.6.3
 
 # Predbat's requirements.txt pins only numpy, so an image built today and one
 # built next week could otherwise carry different libraries. Everything is
