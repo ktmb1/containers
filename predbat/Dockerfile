@@ -45,7 +45,7 @@ ARG PREDBAT_VERSION=v9.6.2
 #
 # hadolint ignore=DL3013
 RUN pip install --no-cache-dir \
-    "pytz==2026.5" \
+    "pytz==2026.6" \
     "requests==2.34.2" \
     "pyyaml==6.0.3" \
     "aiofiles==25.1.0" \
