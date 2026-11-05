@@ -1,0 +1,17 @@
+# The direct dependencies. requirements.txt is the full, hashed lock compiled
+# from this file (the command is in its header); the Dockerfile installs only
+# that, with --require-hashes, so every transitive package is pinned too.
+#
+# 0.24.1 specifically: rails/scrub/rails.co works around a 0.24.1 bug that
+# upstream fixed after it (NVIDIA-NeMo/Guardrails#2188), and the next release
+# also renames the tool rail (#2312). A bump is therefore a config change as
+# well as a version change - see the README. verify.sh fails the PR if a bump
+# lets anything through unmasked.
+nemoguardrails[server]==0.24.1
+presidio-analyzer==2.2.366
+presidio-anonymizer==2.2.366
+# The spaCy pipeline Presidio's NER (PERSON) runs on. Not on PyPI, so it is
+# pinned by URL and the lock records its hash. It must match spaCy's minor
+# (3.8.x); spaCy refuses to load a pipeline built for another minor. Renovate
+# cannot see this line - move it by hand when a spaCy minor bump lands.
+en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl
