@@ -1,0 +1,29 @@
+# The one guardrails config this image serves, as config id "scrub".
+#
+# There is deliberately no `models:` entry. The NeMo server builds the main
+# model per request from the request's own `model` field, MAIN_MODEL_BASE_URL
+# and OPENAI_API_KEY (all set by the deployment), so one config serves every
+# model the upstream gateway routes, and nothing here names a provider.
+#
+# passthrough: forward the client's messages and tools as-is instead of
+# rewriting them into NeMo's dialog prompts. Tool calling only works in this
+# mode. It is also what makes the masking below necessary: passthrough
+# forwards the WHOLE message list, and the built-in "mask sensitive data on
+# input" rail only rewrites the last user turn.
+passthrough: true
+
+rails:
+  # Every request whose last message is a user turn.
+  input:
+    flows:
+      - mask all messages
+  # Every request whose last message is a tool result. These skip the input
+  # rails entirely - without this, a Home Assistant answer full of names would
+  # go upstream verbatim. 0.24.1 calls this `tool_input`; upstream renamed it
+  # `tool_result` after 0.24.1 (NVIDIA-NeMo/Guardrails#2312).
+  tool_input:
+    flows:
+      - mask all messages
+  # No output rail, deliberately. The reply goes back to the caller inside the
+  # cluster, not to the provider, and the model only ever saw masked text -
+  # masking its answer protects nothing and costs a second NER pass per reply.

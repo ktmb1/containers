@@ -24,6 +24,12 @@
   digest: { automerge: true },
   lockFileMaintenance: { enabled: true, automerge: true },
 
+  // pip-compile has no default file patterns. Point it at the lock; it reads
+  // the source (requirements.in) and the uv command from the lock's header.
+  "pip-compile": {
+    managerFilePatterns: ["/^nemo-guardrails/requirements\\.txt$/"],
+  },
+
   packageRules: [
     {
       // Pin every Docker reference to a digest. Without this, a floating tag
@@ -65,6 +71,26 @@
       matchUpdateTypes: ["major"],
       automerge: false,
       dependencyDashboardApproval: true,
+    },
+    {
+      // nemo-guardrails' lock is compiled by uv from requirements.in (the
+      // command is in requirements.txt's header); pip-compile below
+      // regenerates it, hashes included. pip_requirements would edit the
+      // lock's version lines directly and leave the hashes stale, failing
+      // --require-hashes - so it is kept off that file.
+      matchManagers: ["pip_requirements"],
+      matchFileNames: ["nemo-guardrails/**"],
+      enabled: false,
+    },
+    {
+      // A NeMo bump is never only a version bump. The rails work around a
+      // 0.24.1 bug fixed upstream after it, and the next release renames the
+      // tool rail - so it needs the config changes in the README, and a human
+      // reading verify.sh's output, not an automerge on a green build.
+      // Presidio and the transitive lock still automerge: verify.sh proves
+      // masking end to end, which is what they could break.
+      matchPackageNames: ["nemoguardrails"],
+      automerge: false,
     },
     // Deliberately NO groupName for ghcr.io/cloudnative-pg/postgresql. The two
     // references - the `operand:` matrix entry in build.yaml and
@@ -248,6 +274,16 @@
       depNameTemplate: "amasolov/woolworths-mcp",
       datasourceTemplate: "github-releases",
       extractVersionTemplate: "^v(?<version>.+)$",
+    },
+    {
+      customType: "regex",
+      description: "nemoguardrails release in the build matrix",
+      managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
+      // Anchored on the entry's own name like the predbat manager. The other
+      // half of the pin, requirements.in, is the pip-compile manager's.
+      matchStrings: ["name: nemo-guardrails(?:.|\\n)*?version:\\s*\"(?<currentValue>[^\"]+)\""],
+      depNameTemplate: "nemoguardrails",
+      datasourceTemplate: "pypi",
     },
     // Deliberately NO custom manager for timescaledb-extension/Dockerfile's
     // `ARG PG_OPERAND_IMAGE=...`. The built-in dockerfile manager already

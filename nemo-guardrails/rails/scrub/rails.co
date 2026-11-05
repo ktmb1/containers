@@ -1,0 +1,22 @@
+# Masks every message about to be forwarded - see actions.py for why the
+# built-in masking rail is not enough.
+#
+# The action rewrites the outgoing message list in place and returns the
+# masked LAST user turn. That return value has to be written back to
+# $user_message: in passthrough mode NeMo re-inserts $user_message as the last
+# user turn after the rails run, so leaving it alone would put the original,
+# unmasked text back on top of the masked copy.
+define subflow mask all messages
+  $masked = execute mask_all_messages
+  if $masked
+    $user_message = $masked
+
+# NeMo 0.24.1 bug: once the tool_input rails finish, nothing emits the
+# UserMessage event that the rest of the pipeline waits on, so a request ending
+# in a tool result is never sent to the model and the caller gets an empty
+# reply. Emit it ourselves. Fixed upstream after 0.24.1
+# (NVIDIA-NeMo/Guardrails#2188) - remove this flow on that bump rather than
+# emit the event a second time.
+define flow resume generation after tool input rails
+  event ToolInputRailsFinished
+  create event UserMessage(text=$user_message)

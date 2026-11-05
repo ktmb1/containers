@@ -130,6 +130,15 @@ jobs:
             # the published tag. Keep it identical to ARG
             # WOOLWORTHS_MCP_VERSION in the Dockerfile; Renovate moves both.
             version: "1.3.0"
+
+          - name: nemo-guardrails
+            context: nemo-guardrails
+            # The nemoguardrails release on PyPI, and the published tag. Keep
+            # it identical to the nemoguardrails pin in requirements.in;
+            # Renovate moves both. The image also changes without a NeMo
+            # bump (the rails, the lock), which republishes this tag with a
+            # new digest - home-ops pins by digest, so it still sees that.
+            version: "0.24.1"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -442,6 +451,13 @@ jobs:
       - name: Verify woolworths-mcp serves MCP and launches Chromium
         if: ${{ matrix.name == 'woolworths-mcp' && steps.changed.outputs.build == 'true' }}
         run: ./woolworths-mcp/verify.sh ${{ matrix.name }}:ci
+
+      # This image exists to mask personal data, and every way that can break
+      # still builds, starts and answers 200 - so put requests through it and
+      # read what a fake upstream received. See the script for the cases.
+      - name: Verify nemo-guardrails masks everything it forwards
+        if: ${{ matrix.name == 'nemo-guardrails' && steps.changed.outputs.build == 'true' }}
+        run: ./nemo-guardrails/verify.sh ${{ matrix.name }}:ci
 
       # The tag suffix differs by image: the extension is keyed to a Postgres
       # major (the .so is only loadable in that one), while chrony is keyed to

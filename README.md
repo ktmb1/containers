@@ -17,6 +17,7 @@ Two kinds of build live here:
 | `chrony`                | this repo (`Dockerfile`)            | Serve-only NTP server for the LAN                     |
 | `predbat`               | this repo (`Dockerfile`)            | Home battery prediction and control, off the Supervisor |
 | `woolworths-mcp`        | `amasolov/woolworths-mcp` (release) | Woolworths MCP server over HTTP, for the MCP gateway  |
+| `nemo-guardrails`       | this repo (`Dockerfile`), PyPI lock | Proxy that masks personal data before an LLM call     |
 | `aiolists`              | `amasolov/AIOLists` (`deploy`)      | AIOLists Stremio addon, from our fork                 |
 | `stremio-web`           | `Stremio/stremio-web` (release tag) | Stremio web UI                                        |
 
@@ -328,6 +329,62 @@ are there and the cart tools are not, and calls `woolworths_search_products`
 to prove Chromium launches. Whether woolworths.com.au then answers from a CI
 runner is not asserted - that is the runner's network and Woolworths' bot
 protection, not the image.
+
+## nemo-guardrails
+
+[NeMo Guardrails](https://github.com/NVIDIA-NeMo/Guardrails) 0.24.1 as an
+OpenAI-compatible proxy that masks personal data with
+[Presidio](https://github.com/microsoft/presidio) before a request leaves the
+house. In `ktmb1/home-ops` it sits between Heym and the envoy-ai gateway, for
+models whose provider may log or train on prompts. CPU only: Presidio's NER is
+a spaCy pipeline (`en_core_web_lg`, baked in), not an LLM.
+
+**What is masked.** Every message forwarded - the system prompt, every earlier
+turn, multi-part text, tool results and the arguments of earlier tool calls -
+not just the latest user turn, which is all NeMo's built-in masking rail
+touches. Entities: people, email, phone (AU numbering added), IP, card, IBAN
+and the AU TFN/ABN/ACN/Medicare recognizers. Not locations: a forecast for
+Katoomba is data. Measurements are kept, and a PERSON hit containing a digit
+is dropped, because spaCy tags things like `12345 Wh` as people.
+
+**Household names are the guarantee; NER is best effort.** spaCy misses names
+in plenty of sentences and never finds them in identifiers like
+`person.<name>` or `device_tracker.<name>_phone`, which is most of what Home
+Assistant returns. So the deployment mounts a names file
+(`SCRUBBER_NAMES_FILE`, one per line) and those are matched wherever they are
+not part of a longer word. The list is not in the image: this repository is
+public, and the names are the very thing being protected.
+
+**How.** `rails/scrub/` is the one config the server loads. Its action masks
+NeMo's outgoing request in place through an internal context variable - there
+is no supported hook for messages other than the last in 0.24.1 - and a
+second flow works around a 0.24.1 bug where a request ending in a tool result
+never reaches the model. The model, upstream URL and key are per deployment:
+the request's `model`, `MAIN_MODEL_BASE_URL` and `OPENAI_API_KEY`. The
+caller's own `Authorization` is not forwarded.
+
+**Fail closed.** `serve.py` runs the scrubber over canaries and every
+household name before starting the server, and exits if anything survives or
+a configured names file is missing. NeMo refuses streaming combined with
+tools, and refuses any config id but `scrub`. If the masking action itself
+throws, NeMo sends nothing upstream - checked by replacing it with one that
+raises - but tells the caller with an HTTP 200 whose content is "I'm sorry, an
+internal error has occurred.", not with an error status. A caller treating
+that as the model's answer is the visible symptom.
+
+`verify.sh` runs the image as the pod does, on a network with no route out,
+behind a fake upstream that records what it receives. It sends each shape of
+request - system and history, multi-part, tools offered, one and two tool
+results - and fails if any canary reaches the upstream, if a case comes back
+empty (the 0.24.1 bug's symptom), or if measurements were masked.
+
+**Upgrading NeMo** is held from automerge. Upstream has fixed the tool-result
+bug and renamed the rail (NVIDIA-NeMo/Guardrails#2188, #2312), so the next
+release needs `tool_input` renamed to `tool_result` in `config.yml` and the
+resume flow in `rails.co` removed. On upstream `main` as of 2026-11-05, a
+request ending in a tool result still had its user turn put back unmasked
+after the rails ran; the actions.py approach covered it on 0.24.1. Expect
+`verify.sh` to show whether it still does.
 
 ## aiolists
 
