@@ -305,6 +305,31 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # The verify scripts below `docker run` the operand, and a run that has to
+      # pull it makes one attempt. GHCR throttles blob downloads from shared
+      # runner IPs: the 2026-11-02 weekly rebuild failed here with
+      # `docker: toomanyrequests: retry-after: 64.253µs` halfway through the
+      # operand's layers - after the extension had built fine - and so
+      # published nothing that week. Pull it up front with backoff so the
+      # verify step finds it local; a pull that still fails after the retries
+      # fails here, under a name that says what actually went wrong.
+      - name: Pull the operand
+        if: ${{ matrix.operand != '' && steps.changed.outputs.build == 'true' }}
+        env:
+          OPERAND: ${{ matrix.operand }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if docker pull --quiet "${OPERAND}"; then
+              exit 0
+            fi
+            delay=$((attempt * 20))
+            echo "::warning::pull attempt ${attempt} failed; retrying in ${delay}s"
+            sleep "${delay}"
+          done
+          echo "::error::could not pull ${OPERAND} after 5 attempts"
+          exit 1
+
       # home-ops refuses an extension whose recorded operand is not the one its
       # Cluster runs, so the label has to be exactly the matrix operand - a
       # Dockerfile that stopped passing PG_OPERAND_IMAGE through would label
