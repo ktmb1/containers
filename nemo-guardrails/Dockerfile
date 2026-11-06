@@ -13,7 +13,7 @@
 # accelerator.
 #
 # 3.13, not 3.14+: nemoguardrails 0.24.1 declares python <3.14.
-FROM python:3.13-slim-trixie@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc
+FROM python:3.15-slim-trixie@sha256:e97b88e416c3c01eb427b21fd8cd3ebf006e6ee38afcfcc3cae1c54ee2ab0a75
 
 # The full transitive lock, with hashes - see requirements.in for the direct
 # pins and why NeMo is held at 0.24.1.
