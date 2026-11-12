@@ -94,6 +94,26 @@ CONF
         [ "$n" = "1" ] || { echo "SRID 4326 missing from spatial_ref_sys" >&2; exit 1; }
 
         echo "  postgis ${PG_VERSION} loads, indexes and projects"
+
+        # Upgrades run different SQL from CREATE EXTENSION: the ANY--<ver>
+        # script, which LOADs the library by name before redefining anything
+        # (see the sed in the Dockerfile). Only an older catalog version reaches
+        # it, so do what postgis_extensions_upgrade() does to force it - step to
+        # the ANY placeholder and back. db1 hit this on its first PostGIS
+        # upgrade after every check here had passed.
+        q "ALTER EXTENSION postgis UPDATE TO '"'"'ANY'"'"';" >/dev/null
+        q "ALTER EXTENSION postgis UPDATE;" >/dev/null
+        got="$(q "SELECT extversion FROM pg_extension WHERE extname = '"'"'postgis'"'"';")"
+        [ "$got" = "${PG_VERSION}" ] \
+            || { echo "after the upgrade round trip postgis is ${got}, expected ${PG_VERSION}" >&2; exit 1; }
+        full="$(q "SELECT postgis_full_version();")"
+        case "$full" in
+            *"need upgrade"*) echo "postgis procs still need upgrade: $full" >&2; exit 1 ;;
+        esac
+        wkt="$(q "SELECT ST_AsText(location) FROM t;")"
+        [ "$wkt" = "POINT(151.2093 -33.8688)" ] \
+            || { echo "geometry after upgrade returned ${wkt}" >&2; exit 1; }
+        echo "  postgis ${PG_VERSION} upgrades in place"
     '
 echo "::endgroup::"
 

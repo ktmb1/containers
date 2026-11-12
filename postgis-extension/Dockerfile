@@ -67,6 +67,20 @@ RUN set -eux; \
 # symlinks produces a file that `ls` shows and `cat` cannot read, and Postgres
 # reports the extension as simply "not available" - a confusing failure the
 # assertion below now makes impossible.
+#
+# The sed fixes upgrades, which a fresh CREATE EXTENSION never exercises. Every
+# upgrade script (postgis--ANY--<ver>.sql, and topology's) opens with
+# `LOAD '$libdir/postgis-3'`. On an image volume $libdir is the operand's own
+# /usr/lib/postgresql/<major>/lib, where postgis-3.so is not, and LOAD takes
+# the path literally:
+#   ERROR: could not access file "$libdir/postgis-3": No such file or directory
+#   extension script file "postgis--ANY--3.7.0.sql", near line 1475
+# That is what ALTER EXTENSION postgis UPDATE did on db1 (2026-11-12), leaving
+# the SQL at 3.6.4 under a 3.7.0 library. The ~600 `AS '$libdir/postgis-3'`
+# function definitions are fine as they are: Postgres 18 retries those through
+# dynamic_library_path, and the live functions on db1 still carry that path.
+# Only the bare LOAD has no such fallback, so only it is rewritten - to the
+# bare name, which LOAD does look up in dynamic_library_path.
 RUN set -eux; \
     mkdir -p /out/lib /out/share/extension /out/proj; \
     L="$(pg_config --pkglibdir)"; S="$(pg_config --sharedir)"; \
@@ -75,6 +89,8 @@ RUN set -eux; \
         case "$f" in *raster*|*sfcgal*) continue;; esac; \
         [ -e "$f" ] && cp -aL "$f" /out/share/extension/; \
     done; \
+    grep -l "^LOAD '\$libdir/" /out/share/extension/*.sql || true; \
+    sed -i -E "s|^LOAD '\\\$libdir/([^']+)';|LOAD '\\1';|" /out/share/extension/*.sql; \
     for so in /out/lib/*.so; do ldd "$so" | awk '/=> \//{print $3}'; done \
       | sort -u > /tmp/queue.txt; \
     while [ -s /tmp/queue.txt ]; do \
@@ -107,7 +123,10 @@ RUN set -eux; \
             && { echo "unresolved NEEDED in $so:" >&2; \
                  LD_LIBRARY_PATH=/out/lib ldd "$so" >&2; exit 1; }; \
     done; \
-    test ! -e /out/lib/postgis_raster-3.so
+    test ! -e /out/lib/postgis_raster-3.so; \
+    if grep -n "^LOAD '\$libdir/" /out/share/extension/*.sql >&2; then \
+        echo "upgrade scripts still LOAD through \$libdir (see above)" >&2; exit 1; \
+    fi
 
 FROM scratch
 # Record the exact operand this was compiled against. A FROM scratch image
