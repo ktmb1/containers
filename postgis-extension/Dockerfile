@@ -9,7 +9,7 @@
 # postgresql-${PG_MAJOR}-postgis-3 built against the same Postgres packaging the
 # operand uses, so the sane thing is to install that and repackage it into the
 # layout CNPG mounts.
-ARG PG_OPERAND_IMAGE=ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie@sha256:de572898499fab9406f0da51929da562f96f3be40ca79fafea8ec1a8d5b42065
+ARG PG_OPERAND_IMAGE=ghcr.io/cloudnative-pg/postgresql:18.7-standard-trixie@sha256:23719505c7cc417b043ffd9998b44ab8d57fec1d92f0bf11b231a1754a5962f2
 
 ARG PG_MAJOR=18
 
