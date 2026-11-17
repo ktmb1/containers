@@ -139,6 +139,15 @@ jobs:
             # bump (the rails, the lock), which republishes this tag with a
             # new digest - home-ops pins by digest, so it still sees that.
             version: "0.24.1"
+
+          - name: rutracker-cf-proxy
+            context: rutracker-cf-proxy
+            # The upstream rofl3228/rutracker-cf-proxy release this is built
+            # FROM, and the published tag. Keep it identical to the FROM tag
+            # in the Dockerfile; Renovate moves both, and verify.sh fails the
+            # build if the two disagree. A change to the patch alone
+            # republishes this tag with a new digest, which home-ops sees.
+            version: "0.1.1"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -458,6 +467,14 @@ jobs:
       - name: Verify nemo-guardrails masks everything it forwards
         if: ${{ matrix.name == 'nemo-guardrails' && steps.changed.outputs.build == 'true' }}
         run: ./nemo-guardrails/verify.sh ${{ matrix.name }}:ci
+
+      # The only change is a text edit to the Prowlarr definition inside the
+      # package, and a build proves nothing about it: a missed anchor would
+      # fail the build, but a regex that parses yet cuts mid-word would not.
+      # So install the definition the way home-ops does and check the cut.
+      - name: Verify rutracker-cf-proxy installs a capped definition
+        if: ${{ matrix.name == 'rutracker-cf-proxy' && steps.changed.outputs.build == 'true' }}
+        run: ./rutracker-cf-proxy/verify.sh ${{ matrix.name }}:ci ${{ matrix.version }}
 
       # The tag suffix differs by image: the extension is keyed to a Postgres
       # major (the .so is only loadable in that one), while chrony is keyed to
