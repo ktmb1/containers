@@ -18,6 +18,7 @@ Two kinds of build live here:
 | `predbat`               | this repo (`Dockerfile`)            | Home battery prediction and control, off the Supervisor |
 | `woolworths-mcp`        | `amasolov/woolworths-mcp` (release) | Woolworths MCP server over HTTP, for the MCP gateway  |
 | `nemo-guardrails`       | this repo (`Dockerfile`), PyPI lock | Proxy that masks personal data before an LLM call     |
+| `rutracker-cf-proxy`    | `rofl3228/rutracker-cf-proxy` image | RuTracker proxy for Prowlarr, search query capped     |
 | `aiolists`              | `amasolov/AIOLists` (`deploy`)      | AIOLists Stremio addon, from our fork                 |
 | `stremio-web`           | `Stremio/stremio-web` (release tag) | Stremio web UI                                        |
 
@@ -385,6 +386,27 @@ resume flow in `rails.co` removed. On upstream `main` as of 2026-11-05, a
 request ending in a tool result still had its user turn put back unmasked
 after the rails ran; the actions.py approach covered it on 0.24.1. Expect
 `verify.sh` to show whether it still does.
+
+## rutracker-cf-proxy
+
+[rutracker-cf-proxy](https://github.com/rofl3228/rutracker-cf-proxy) lets
+Prowlarr search RuTracker from behind Cloudflare: it takes a clearance cookie
+from Byparr and makes every request itself with a matching Firefox
+fingerprint, login POST included. `ktmb1/home-ops` runs it in `media`, and
+installs the Prowlarr definition it ships with an init container.
+
+This image is upstream's, unchanged, plus one keywords filter in that
+definition (`patch-definition.py`): **queries are cut to the longest run of
+whole words within 90 characters.** RuTracker's search returns nothing for
+queries of roughly 100+ characters, and Shelfarr builds them from title +
+subtitle + author. A 118-character query for a book on RuTracker found
+nothing; the same title cut to 88 found it. The measurements are in the
+script.
+
+`verify.sh` installs the definition the way home-ops does, checks the filter
+is in place and still parses, runs the cut against real and edge-case
+queries, and starts the proxy. Drop this image and go back to upstream's if
+upstream adds its own length cap.
 
 ## aiolists
 

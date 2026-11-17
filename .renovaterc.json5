@@ -256,6 +256,18 @@
     },
     {
       customType: "regex",
+      description: "rutracker-cf-proxy upstream release in the build matrix",
+      managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
+      // Anchored on its own matrix entry. The FROM line in the Dockerfile is
+      // found by the dockerfile manager under the same depName, so both land
+      // in one PR - and verify.sh fails it if they ever disagree.
+      matchStrings: ["name: rutracker-cf-proxy(?:.|\\n)*?version:\\s*\"(?<currentValue>[^\"]+)\""],
+      depNameTemplate: "ghcr.io/rofl3228/rutracker-cf-proxy",
+      datasourceTemplate: "docker",
+      versioningTemplate: "docker",
+    },
+    {
+      customType: "regex",
       description: "woolworths-mcp release in the build matrix",
       managerFilePatterns: ["/^\\.github/workflows/build\\.yaml$/"],
       // Anchored on the entry's own name like the predbat manager above. The
