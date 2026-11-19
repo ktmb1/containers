@@ -138,7 +138,7 @@ jobs:
             # Renovate moves both. The image also changes without a NeMo
             # bump (the rails, the lock), which republishes this tag with a
             # new digest - home-ops pins by digest, so it still sees that.
-            version: "0.24.1"
+            version: "0.25.0"
 
           - name: rutracker-cf-proxy
             context: rutracker-cf-proxy
