@@ -47,7 +47,7 @@ ARG PREDBAT_VERSION=v9.9.0
 RUN pip install --no-cache-dir \
     "pytz==2026.6" \
     "requests==2.34.2" \
-    "pyyaml==6.0.3" \
+    "pyyaml==6.0.4" \
     "aiofiles==25.1.0" \
     "aiohttp==3.14.5" \
     "aiomqtt==2.5.1" \
